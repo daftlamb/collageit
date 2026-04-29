@@ -6,7 +6,7 @@
 <title>Collage It</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Space+Grotesk:wght@400;500&family=Bebas+Neue&family=Caveat:wght@400;600&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Space+Grotesk:wght@400;500&family=Bebas+Neue&family=Caveat:wght@400;600&family=Playfair+Display:wght@400;500;600&family=DM+Serif+Display&family=Inter:wght@400;500;600&family=Manrope:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500&family=ZCOOL+XiaoWei&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;500&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root{
@@ -324,6 +324,25 @@ input[type="range"]{
   gap:6px;
   flex-wrap:wrap;
 }
+.segmented{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:6px;
+}
+.seg-btn{
+  height:30px;
+  border-radius:7px;
+  border:1px solid var(--line);
+  background:var(--surface);
+  color:var(--muted);
+  font-size:11px;
+  cursor:pointer;
+}
+.seg-btn.active{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:#fff9f1;
+}
 .swatch-grid{
   display:grid;
   grid-template-columns:repeat(6,1fr);
@@ -451,15 +470,29 @@ input[type="range"]{
           <textarea class="field" id="text-content" placeholder="Type here"></textarea>
           <select class="field font-select" id="text-font">
             <option value="Outfit">Outfit</option>
+            <option value="Inter">Inter</option>
+            <option value="Manrope">Manrope</option>
+            <option value="IBM Plex Sans">IBM Plex Sans</option>
             <option value="Space Grotesk">Space Grotesk</option>
             <option value="Cormorant Garamond">Cormorant Garamond</option>
+            <option value="Playfair Display">Playfair Display</option>
+            <option value="DM Serif Display">DM Serif Display</option>
             <option value="Bebas Neue">Bebas Neue</option>
             <option value="Caveat">Caveat</option>
+            <option value="ZCOOL XiaoWei">ZCOOL XiaoWei</option>
+            <option value="Ma Shan Zheng">Ma Shan Zheng</option>
             <option value="Noto Sans SC">Noto Sans SC</option>
             <option value="Noto Serif SC">Noto Serif SC</option>
           </select>
+          <div class="segmented" id="text-align-group">
+            <button class="seg-btn active" data-align="left" type="button">Left</button>
+            <button class="seg-btn" data-align="center" type="button">Center</button>
+            <button class="seg-btn" data-align="right" type="button">Right</button>
+          </div>
           <div class="row"><label>Size</label><span class="value" id="text-size-val">32</span></div>
           <input type="range" id="text-size" min="12" max="180" value="32">
+          <div class="row"><label>Line Height</label><span class="value" id="text-leading-val">1.2</span></div>
+          <input type="range" id="text-leading" min="0.8" max="2.4" step="0.05" value="1.2">
           <div class="row"><label>Letter Space</label><span class="value" id="text-letter-val">0</span></div>
           <input type="range" id="text-letter" min="-10" max="40" value="0">
           <input class="field" id="text-color" type="color" value="#111111">
@@ -523,6 +556,7 @@ function defaultTextLayer(x, y, text, name) {
     name: name || 'Text',
     fontFamily: 'Outfit',
     fontSize: 32,
+    lineHeight: 1.2,
     letterSpacing: 0,
     color: '#111111',
     align: 'left'
@@ -576,6 +610,7 @@ function makeSnapshot() {
         plain.text = layer.text;
         plain.fontFamily = layer.fontFamily;
         plain.fontSize = layer.fontSize;
+        plain.lineHeight = layer.lineHeight;
         plain.letterSpacing = layer.letterSpacing;
         plain.color = layer.color;
         plain.align = layer.align;
@@ -631,6 +666,7 @@ function hydrateLayer(plain) {
     text: plain.text,
     fontFamily: plain.fontFamily,
     fontSize: plain.fontSize,
+    lineHeight: plain.lineHeight || 1.2,
     letterSpacing: plain.letterSpacing,
     color: plain.color,
     align: plain.align
@@ -727,12 +763,17 @@ function updateTextMetrics(layer) {
   const lines = String(layer.text || '').split('\n');
   let maxWidth = 40;
   for (let i = 0; i < lines.length; i++) {
-    const baseWidth = measureCtx.measureText(lines[i] || ' ').width;
-    const spacingExtra = Math.max(0, lines[i].length - 1) * layer.letterSpacing;
-    maxWidth = Math.max(maxWidth, baseWidth + spacingExtra);
+    maxWidth = Math.max(maxWidth, getLineRenderWidth(lines[i] || ' ', layer));
   }
   layer.w = Math.max(90, Math.round(maxWidth + 18));
-  layer.h = Math.max(36, Math.round(lines.length * layer.fontSize * 1.22 + 12));
+  layer.h = Math.max(36, Math.round(lines.length * layer.fontSize * layer.lineHeight + 12));
+}
+
+function getLineRenderWidth(line, layer) {
+  measureCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
+  const baseWidth = measureCtx.measureText(line || ' ').width;
+  const spacingExtra = Math.max(0, (line || ' ').length - 1) * layer.letterSpacing;
+  return baseWidth + spacingExtra;
 }
 
 function createImageLayer(img, name, src) {
@@ -776,6 +817,7 @@ function addCreditLayer() {
   layer.fontFamily = 'Space Grotesk';
   layer.fontSize = 14;
   layer.color = '#5f5851';
+  layer.lineHeight = 1.15;
   layer.letterSpacing = 1;
   updateTextMetrics(layer);
   state.layers.push(layer);
@@ -1032,24 +1074,26 @@ function getProcessedImage(layer) {
 
 function renderTextLayer(layer) {
   const lines = String(layer.text || '').split('\n');
+  measureCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
   ctx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
   ctx.fillStyle = layer.color;
   ctx.textBaseline = 'top';
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const lineWidth = getLineRenderWidth(line, layer);
     let x = -layer.w / 2;
     if (layer.align === 'center') {
-      x = -measureCtx.measureText(line).width / 2;
+      x = -lineWidth / 2;
     } else if (layer.align === 'right') {
-      x = layer.w / 2 - measureCtx.measureText(line).width;
+      x = layer.w / 2 - lineWidth;
     }
     if (!layer.letterSpacing) {
-      ctx.fillText(line, x, -layer.h / 2 + i * layer.fontSize * 1.2);
+      ctx.fillText(line, x, -layer.h / 2 + i * layer.fontSize * layer.lineHeight);
     } else {
       let cursor = x;
       for (let c = 0; c < line.length; c++) {
         const ch = line[c];
-        ctx.fillText(ch, cursor, -layer.h / 2 + i * layer.fontSize * 1.2);
+        ctx.fillText(ch, cursor, -layer.h / 2 + i * layer.fontSize * layer.lineHeight);
         cursor += measureCtx.measureText(ch).width + layer.letterSpacing;
       }
     }
@@ -1355,10 +1399,15 @@ function syncInspector() {
     document.getElementById('text-content').value = active.text;
     document.getElementById('text-font').value = active.fontFamily;
     document.getElementById('text-size').value = active.fontSize;
+    document.getElementById('text-leading').value = active.lineHeight || 1.2;
     document.getElementById('text-letter').value = active.letterSpacing;
     document.getElementById('text-color').value = active.color;
     syncRangeValue('text-size-val', active.fontSize);
+    syncRangeValue('text-leading-val', Number(active.lineHeight || 1.2).toFixed(2));
     syncRangeValue('text-letter-val', active.letterSpacing);
+    document.querySelectorAll('#text-align-group .seg-btn').forEach(function (node) {
+      node.classList.toggle('active', node.dataset.align === (active.align || 'left'));
+    });
   }
 }
 
@@ -1582,6 +1631,16 @@ document.getElementById('text-size').addEventListener('input', function () {
 });
 document.getElementById('text-size').addEventListener('change', pushHistorySnapshot);
 
+document.getElementById('text-leading').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'text') return;
+  active.lineHeight = Number(this.value);
+  updateTextMetrics(active);
+  syncRangeValue('text-leading-val', Number(this.value).toFixed(2));
+  render();
+});
+document.getElementById('text-leading').addEventListener('change', pushHistorySnapshot);
+
 document.getElementById('text-letter').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'text') return;
@@ -1599,6 +1658,19 @@ document.getElementById('text-color').addEventListener('input', function () {
   render();
 });
 document.getElementById('text-color').addEventListener('change', pushHistorySnapshot);
+
+document.querySelectorAll('#text-align-group .seg-btn').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const active = getActiveLayer();
+    if (!active || active.type !== 'text') return;
+    active.align = button.dataset.align;
+    document.querySelectorAll('#text-align-group .seg-btn').forEach(function (node) {
+      node.classList.toggle('active', node === button);
+    });
+    render();
+    pushHistorySnapshot();
+  });
+});
 
 const paperSwatches = document.getElementById('paper-swatches');
 PAPER_SWATCHES.forEach(function (color, idx) {
