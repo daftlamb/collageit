@@ -1430,31 +1430,21 @@ function renderRoughBrush(ctxRef, points, layer) {
   if (layer.roughStyle !== 'rough' || rough <= 0) return;
   const overlays = rough > 65 ? 4 : 3;
   for (let k = 0; k < overlays; k++) {
-    const jitter = 0.32 + rough / 82;
-    const ghost = points.map(function (p, idx) {
-      const amp = (Math.sin(idx * 1.7 + k * 2.1) + Math.cos(idx * 0.9 + k * 1.3)) * layer.strokeWidth * jitter;
-      return {
-        x: p.x + Math.sin(idx * 0.7 + k) * amp * 0.36,
-        y: p.y + Math.cos(idx * 0.8 + k * 1.6) * amp * 0.34
-      };
-    });
+    const ghost = buildFineRoughPoints(points, layer, k + 1);
     ctxRef.save();
-    ctxRef.globalAlpha = 0.34;
+    ctxRef.globalAlpha = 0.22;
     drawSmoothPath(ctxRef, ghost, layer.closed);
-    ctxRef.lineWidth = Math.max(1, layer.strokeWidth * (0.56 + k * 0.13));
+    ctxRef.lineWidth = Math.max(0.7, layer.strokeWidth * (0.74 + k * 0.06));
     ctxRef.strokeStyle = layer.strokeColor;
     ctxRef.stroke();
     ctxRef.restore();
   }
-  if (rough > 24 && layer.strokeWidth > 0) {
-    const jitterLine = points.map(function (p, idx) {
-      const wobble = (Math.sin(idx * 0.55) + Math.cos(idx * 0.42 + 1.3)) * (rough / 100) * layer.strokeWidth * 0.28;
-      return { x: p.x + wobble, y: p.y - wobble * 0.5 };
-    });
+  if (rough > 18 && layer.strokeWidth > 0) {
+    const jitterLine = buildFineRoughPoints(points, layer, 6.7);
     ctxRef.save();
-    ctxRef.globalAlpha = 0.28;
+    ctxRef.globalAlpha = 0.12;
     drawSmoothPath(ctxRef, jitterLine, layer.closed);
-    ctxRef.lineWidth = Math.max(0.6, layer.strokeWidth * 0.48);
+    ctxRef.lineWidth = Math.max(0.5, layer.strokeWidth * 0.38);
     ctxRef.strokeStyle = layer.strokeColor;
     ctxRef.stroke();
     ctxRef.restore();
@@ -1603,6 +1593,43 @@ function samplePathAt(points, closed, distance) {
     d -= len;
   }
   return { x: points[0].x, y: points[0].y, angle: 0 };
+}
+
+function resamplePathSamples(points, closed, spacing) {
+  const metrics = buildPathMetrics(points, closed);
+  if (!metrics.total) {
+    return points.map(function (p) { return { x: p.x, y: p.y, angle: 0 }; });
+  }
+  const step = Math.max(2, spacing || 4);
+  const samples = [];
+  const total = closed ? metrics.total : Math.max(step, metrics.total);
+  for (let d = 0; d <= total; d += step) {
+    samples.push(samplePathAt(points, closed, d));
+  }
+  if (!closed && samples.length) {
+    const last = samplePathAt(points, false, metrics.total);
+    const tail = samples[samples.length - 1];
+    if (Math.hypot(last.x - tail.x, last.y - tail.y) > 0.5) samples.push(last);
+  }
+  return samples;
+}
+
+function buildFineRoughPoints(points, layer, seed) {
+  const rough = Number(layer.rough || 0);
+  const spacing = Math.max(2.4, Math.min(6, layer.strokeWidth * 0.22));
+  const samples = resamplePathSamples(points, layer.closed, spacing);
+  if (samples.length < 2) return points;
+  const amplitude = (0.08 + rough / 260) * Math.max(1.2, layer.strokeWidth * 0.45);
+  return samples.map(function (sample, idx) {
+    const normalAngle = sample.angle + Math.PI * 0.5;
+    const n1 = snoise(idx * 0.72 + seed * 1.7, seed * 8.13);
+    const n2 = snoise(idx * 1.47 + 31.2, seed * 4.91 + idx * 0.08);
+    const offset = (n1 * 0.72 + n2 * 0.28) * amplitude;
+    return {
+      x: sample.x + Math.cos(normalAngle) * offset,
+      y: sample.y + Math.sin(normalAngle) * offset
+    };
+  });
 }
 
 function getNearestPathPointIndex(layer, x, y, threshold) {
@@ -2077,19 +2104,22 @@ function buildStickerPath(layer) {
       const nx = Math.min(x + w - tooth, px + tooth);
       path.quadraticCurveTo(px + tooth * 0.5, y - tooth * 0.85, nx, y);
     }
+    path.quadraticCurveTo(x + w + tooth * 0.85, y - tooth * 0.85, x + w, y + tooth);
     for (let py = y + tooth; py < y + h - tooth; py += tooth) {
       const ny = Math.min(y + h - tooth, py + tooth);
       path.quadraticCurveTo(x + w + tooth * 0.85, py + tooth * 0.5, x + w, ny);
     }
+    path.quadraticCurveTo(x + w + tooth * 0.85, y + h + tooth * 0.85, x + w - tooth, y + h);
     for (let px = x + w - tooth; px > x + tooth; px -= tooth) {
       const nx = Math.max(x + tooth, px - tooth);
       path.quadraticCurveTo(px - tooth * 0.5, y + h + tooth * 0.85, nx, y + h);
     }
+    path.quadraticCurveTo(x - tooth * 0.85, y + h + tooth * 0.85, x, y + h - tooth);
     for (let py = y + h - tooth; py > y + tooth; py -= tooth) {
       const ny = Math.max(y + tooth, py - tooth);
       path.quadraticCurveTo(x - tooth * 0.85, py - tooth * 0.5, x, ny);
     }
-    path.closePath();
+    path.quadraticCurveTo(x - tooth * 0.85, y - tooth * 0.85, x + tooth, y);
     return path;
   }
   const tooth = 16;
@@ -2197,11 +2227,11 @@ function renderShapeStroke(layer, drawFn, widthScale) {
     const passes = layer.rough > 65 ? 4 : 3;
     for (let i = 0; i < passes; i++) {
       ctx.save();
-      ctx.globalAlpha = 0.26;
-      ctx.translate((Math.random() - 0.5) * layer.rough * 0.14, (Math.random() - 0.5) * layer.rough * 0.14);
-      ctx.rotate((Math.random() - 0.5) * layer.rough * 0.0016);
+      ctx.globalAlpha = 0.16;
+      ctx.translate((Math.random() - 0.5) * layer.rough * 0.04, (Math.random() - 0.5) * layer.rough * 0.04);
+      ctx.rotate((Math.random() - 0.5) * layer.rough * 0.00045);
       drawFn(ctx);
-      ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.72 + i * 0.12));
+      ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.84 + i * 0.04));
       ctx.strokeStyle = layer.strokeColor;
       ctx.stroke();
       ctx.restore();
