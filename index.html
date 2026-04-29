@@ -1428,27 +1428,9 @@ function renderRoughBrush(ctxRef, points, layer) {
   }
   const rough = Number(layer.rough || 0);
   if (layer.roughStyle !== 'rough' || rough <= 0) return;
-  const overlays = rough > 65 ? 4 : 3;
-  for (let k = 0; k < overlays; k++) {
-    const ghost = buildFineRoughPoints(points, layer, k + 1);
-    ctxRef.save();
-    ctxRef.globalAlpha = 0.22;
-    drawSmoothPath(ctxRef, ghost, layer.closed);
-    ctxRef.lineWidth = Math.max(0.7, layer.strokeWidth * (0.74 + k * 0.06));
-    ctxRef.strokeStyle = layer.strokeColor;
-    ctxRef.stroke();
-    ctxRef.restore();
-  }
-  if (rough > 18 && layer.strokeWidth > 0) {
-    const jitterLine = buildFineRoughPoints(points, layer, 6.7);
-    ctxRef.save();
-    ctxRef.globalAlpha = 0.12;
-    drawSmoothPath(ctxRef, jitterLine, layer.closed);
-    ctxRef.lineWidth = Math.max(0.5, layer.strokeWidth * 0.38);
-    ctxRef.strokeStyle = layer.strokeColor;
-    ctxRef.stroke();
-    ctxRef.restore();
-  }
+  renderSegmentedRoughStroke(ctxRef, points, layer, 1.2, 0.22, 0.92, 0.55);
+  renderSegmentedRoughStroke(ctxRef, points, layer, 3.6, 0.14, 0.7, 0.34);
+  if (rough > 38) renderSegmentedRoughStroke(ctxRef, points, layer, 7.4, 0.1, 0.5, 0.22);
 }
 
 function renderBlobShape(ctxRef, layer, points) {
@@ -1630,6 +1612,36 @@ function buildFineRoughPoints(points, layer, seed) {
       y: sample.y + Math.sin(normalAngle) * offset
     };
   });
+}
+
+function renderSegmentedRoughStroke(ctxRef, points, layer, seed, alpha, widthBias, offsetScale) {
+  const rough = Number(layer.rough || 0);
+  const spacing = Math.max(1.3, Math.min(3.4, layer.strokeWidth * 0.1));
+  const samples = resamplePathSamples(points, layer.closed, spacing);
+  if (samples.length < 2) return;
+  const ampBase = (0.02 + rough / 520) * Math.max(1, layer.strokeWidth * offsetScale);
+  ctxRef.save();
+  ctxRef.globalAlpha = alpha;
+  ctxRef.strokeStyle = layer.strokeColor;
+  ctxRef.lineCap = 'round';
+  ctxRef.lineJoin = 'round';
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = samples[i];
+    const b = samples[i + 1];
+    const normalA = a.angle + Math.PI * 0.5;
+    const normalB = b.angle + Math.PI * 0.5;
+    const na = snoise(i * 0.63 + seed * 2.3, seed * 5.7);
+    const nb = snoise(i * 1.19 + 17.4, seed * 9.1 + i * 0.07);
+    const offA = na * ampBase;
+    const offB = nb * ampBase * 1.05;
+    const wa = 1 + snoise(i * 0.41 + seed, seed * 3.2) * 0.18;
+    ctxRef.beginPath();
+    ctxRef.moveTo(a.x + Math.cos(normalA) * offA, a.y + Math.sin(normalA) * offA);
+    ctxRef.lineTo(b.x + Math.cos(normalB) * offB, b.y + Math.sin(normalB) * offB);
+    ctxRef.lineWidth = Math.max(0.45, layer.strokeWidth * widthBias * wa);
+    ctxRef.stroke();
+  }
+  ctxRef.restore();
 }
 
 function getNearestPathPointIndex(layer, x, y, threshold) {
@@ -2099,27 +2111,29 @@ function buildStickerPath(layer) {
   }
   if (style === 'stamp') {
     const tooth = 11;
-    path.moveTo(x + tooth, y);
-    for (let px = x + tooth; px < x + w - tooth; px += tooth) {
-      const nx = Math.min(x + w - tooth, px + tooth);
-      path.quadraticCurveTo(px + tooth * 0.5, y - tooth * 0.85, nx, y);
+    const lift = tooth * 0.85;
+    const radius = tooth;
+    path.moveTo(x + radius, y);
+    for (let px = x + radius; px < x + w - radius; px += tooth) {
+      const nx = Math.min(x + w - radius, px + tooth);
+      path.quadraticCurveTo(px + tooth * 0.5, y - lift, nx, y);
     }
-    path.quadraticCurveTo(x + w + tooth * 0.85, y - tooth * 0.85, x + w, y + tooth);
-    for (let py = y + tooth; py < y + h - tooth; py += tooth) {
-      const ny = Math.min(y + h - tooth, py + tooth);
-      path.quadraticCurveTo(x + w + tooth * 0.85, py + tooth * 0.5, x + w, ny);
+    path.quadraticCurveTo(x + w + lift, y - lift, x + w, y + radius);
+    for (let py = y + radius; py < y + h - radius; py += tooth) {
+      const ny = Math.min(y + h - radius, py + tooth);
+      path.quadraticCurveTo(x + w + lift, py + tooth * 0.5, x + w, ny);
     }
-    path.quadraticCurveTo(x + w + tooth * 0.85, y + h + tooth * 0.85, x + w - tooth, y + h);
-    for (let px = x + w - tooth; px > x + tooth; px -= tooth) {
-      const nx = Math.max(x + tooth, px - tooth);
-      path.quadraticCurveTo(px - tooth * 0.5, y + h + tooth * 0.85, nx, y + h);
+    path.quadraticCurveTo(x + w + lift, y + h + lift, x + w - radius, y + h);
+    for (let px = x + w - radius; px > x + radius; px -= tooth) {
+      const nx = Math.max(x + radius, px - tooth);
+      path.quadraticCurveTo(px - tooth * 0.5, y + h + lift, nx, y + h);
     }
-    path.quadraticCurveTo(x - tooth * 0.85, y + h + tooth * 0.85, x, y + h - tooth);
-    for (let py = y + h - tooth; py > y + tooth; py -= tooth) {
-      const ny = Math.max(y + tooth, py - tooth);
-      path.quadraticCurveTo(x - tooth * 0.85, py - tooth * 0.5, x, ny);
+    path.quadraticCurveTo(x - lift, y + h + lift, x, y + h - radius);
+    for (let py = y + h - radius; py > y + radius; py -= tooth) {
+      const ny = Math.max(y + radius, py - tooth);
+      path.quadraticCurveTo(x - lift, py - tooth * 0.5, x, ny);
     }
-    path.quadraticCurveTo(x - tooth * 0.85, y - tooth * 0.85, x + tooth, y);
+    path.quadraticCurveTo(x - lift, y - lift, x + radius, y);
     return path;
   }
   const tooth = 16;
