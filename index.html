@@ -220,6 +220,15 @@ button,input,select,textarea{font:inherit}
   line-height:1;
   color:#726962;
 }
+.layer-lock{
+  opacity:.8;
+  font-size:13px;
+  line-height:1;
+  color:#8a7c70;
+  margin-right:6px;
+  cursor:pointer;
+}
+.layer-lock:hover{ color:#3b3026; }
 .layer-item:hover .layer-del{ opacity:1; }
 .layer-del:hover{ color:#cf5d51; }
 .layer-item.dragging{ opacity:.48; }
@@ -1448,9 +1457,9 @@ function renderRoughBrush(ctxRef, points, layer) {
   ctxRef.lineWidth = layer.strokeWidth;
   ctxRef.strokeStyle = layer.strokeColor;
   ctxRef.stroke();
-  renderSegmentedRoughStroke(ctxRef, primary, layer, 1.2, 0.24, 0.92, 0.58);
-  renderSegmentedRoughStroke(ctxRef, primary, layer, 3.6, 0.16, 0.68, 0.36);
-  if (rough > 34) renderSegmentedRoughStroke(ctxRef, primary, layer, 7.4, 0.11, 0.48, 0.24);
+  renderSegmentedRoughStroke(ctxRef, primary, layer, 1.2, 0.28, 0.98, 0.72);
+  renderSegmentedRoughStroke(ctxRef, primary, layer, 3.6, 0.18, 0.76, 0.46);
+  if (rough > 24) renderSegmentedRoughStroke(ctxRef, primary, layer, 7.4, 0.12, 0.56, 0.34);
 }
 
 function renderBlobShape(ctxRef, layer, points) {
@@ -1618,15 +1627,15 @@ function resamplePathSamples(points, closed, spacing) {
 
 function buildFineRoughPoints(points, layer, seed) {
   const rough = Number(layer.rough || 0);
-  const spacing = Math.max(2.4, Math.min(6, layer.strokeWidth * 0.22));
+  const spacing = Math.max(1.8, Math.min(4.4, layer.strokeWidth * 0.16));
   const samples = resamplePathSamples(points, layer.closed, spacing);
   if (samples.length < 2) return points;
-  const amplitude = (0.08 + rough / 260) * Math.max(1.2, layer.strokeWidth * 0.45);
+  const amplitude = (0.12 + rough / 170) * Math.max(1.1, layer.strokeWidth * 0.42);
   return samples.map(function (sample, idx) {
     const normalAngle = sample.angle + Math.PI * 0.5;
-    const n1 = snoise(idx * 0.72 + seed * 1.7, seed * 8.13);
-    const n2 = snoise(idx * 1.47 + 31.2, seed * 4.91 + idx * 0.08);
-    const offset = (n1 * 0.72 + n2 * 0.28) * amplitude;
+    const n1 = snoise(idx * 0.58 + seed * 1.7, seed * 8.13);
+    const n2 = snoise(idx * 1.91 + 31.2, seed * 4.91 + idx * 0.12);
+    const offset = (n1 * 0.62 + n2 * 0.38) * amplitude;
     return {
       x: sample.x + Math.cos(normalAngle) * offset,
       y: sample.y + Math.sin(normalAngle) * offset
@@ -2657,10 +2666,18 @@ function updateLayerPanel() {
     } else {
       thumb = '<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#fffaf2;background:#3f3f3f">P</div>';
     }
-    item.innerHTML = thumb + '<span class="layer-name">' + layer.name + (layer.locked ? ' [Locked]' : '') + '</span><span class="layer-del" data-del="' + layer.id + '">x</span>';
+    item.innerHTML = thumb + '<span class="layer-name">' + layer.name + '</span><span class="layer-lock" data-lock="' + layer.id + '">' + (layer.locked ? '[L]' : '[ ]') + '</span><span class="layer-del" data-del="' + layer.id + '">x</span>';
     item.addEventListener('click', function (ev) {
       if (ev.target.dataset.del) {
         deleteLayer(Number(ev.target.dataset.del));
+        return;
+      }
+      if (ev.target.dataset.lock) {
+        layer.locked = !layer.locked;
+        updateLayerPanel();
+        syncInspector();
+        render();
+        pushHistorySnapshot();
         return;
       }
       state.activeId = layer.id;
