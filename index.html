@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Collage It</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a1a; color: #eee; font-family: 'Helvetica Neue', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Toolbar */
+#toolbar {
+  height: 48px; background: #111; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  border-bottom: 1px solid #333; flex-shrink: 0; z-index: 100;
+}
+.tool-btn {
+  background: #2a2a2a; border: 1px solid #444; color: #ccc; padding: 6px 12px;
+  border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.15s;
+}
+.tool-btn:hover { background: #3a3a3a; color: #fff; }
+.tool-btn.active { background: #e8e0d0; color: #111; border-color: #e8e0d0; }
+.sep { width: 1px; height: 24px; background: #333; margin: 0 4px; }
+#canvas-size-select {
+  background: #2a2a2a; border: 1px solid #444; color: #ccc; padding: 5px 8px;
+  border-radius: 4px; font-size: 12px; cursor: pointer;
+}
+
+/* Main area */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* Layer panel */
+#layer-panel {
+  width: 180px; background: #111; border-right: 1px solid #333;
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+#layer-panel h3 { font-size: 11px; color: #666; padding: 10px 12px 6px; text-transform: uppercase; letter-spacing: 1px; }
+#layer-list { flex: 1; overflow-y: auto; padding: 4px; }
+.layer-item {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  border-radius: 4px; cursor: pointer; font-size: 11px; color: #aaa;
+  margin-bottom: 2px; border: 1px solid transparent;
+}
+.layer-item:hover { background: #1e1e1e; }
+.layer-item.active { background: #2a2a2a; border-color: #555; color: #fff; }
+.layer-thumb { width: 28px; height: 28px; background: #333; border-radius: 2px; object-fit: cover; flex-shrink: 0; }
+.layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-del { opacity: 0; color: #666; font-size: 14px; line-height: 1; padding: 2px; }
+.layer-item:hover .layer-del { opacity: 1; }
+.layer-del:hover { color: #ff6b6b; }
+
+#layer-actions { padding: 8px; display: flex; gap: 4px; }
+.layer-action-btn {
+  flex: 1; background: #2a2a2a; border: 1px solid #444; color: #aaa;
+  padding: 5px; border-radius: 3px; cursor: pointer; font-size: 11px; text-align: center;
+}
+.layer-action-btn:hover { background: #3a3a3a; color: #fff; }
+
+/* Canvas area */
+#canvas-area {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: #222; overflow: hidden; position: relative;
+}
+#canvas-wrapper {
+  position: relative; box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+#main-canvas { display: block; cursor: crosshair; }
+
+/* Status bar */
+#statusbar {
+  height: 28px; background: #111; border-top: 1px solid #333;
+  display: flex; align-items: center; padding: 0 12px; gap: 16px;
+  font-size: 11px; color: #555; flex-shrink: 0;
+}
+#statusbar span { color: #777; }
+
+/* Upload overlay hint */
+#upload-hint {
+  position: absolute; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: #444;
+}
+#upload-hint .big { font-size: 48px; }
+#upload-hint .txt { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <select id="canvas-size-select">
+    <option value="800,600">4:3 (800×600)</option>
+    <option value="800,800" selected>1:1 (800×800)</option>
+    <option value="600,800">Portrait (600×800)</option>
+    <option value="1200,630">OG (1200×630)</option>
+    <option value="1080,1920">Story (1080×1920)</option>
+  </select>
+  <div class="sep"></div>
+  <button class="tool-btn active" id="btn-select" title="Select / Move (V)">Select</button>
+  <button class="tool-btn" id="btn-lasso" title="Lasso Crop (L)">Lasso</button>
+  <button class="tool-btn" id="btn-text" title="Add Text (T)">Text</button>
+  <div class="sep"></div>
+  <button class="tool-btn" id="btn-upload" title="Upload Image">+ Image</button>
+  <input type="file" id="file-input" accept="image/*" multiple style="display:none">
+  <div class="sep"></div>
+  <button class="tool-btn" id="btn-export">Export PNG</button>
+</div>
+
+<div id="main">
+  <div id="layer-panel">
+    <h3>Layers</h3>
+    <div id="layer-list"></div>
+    <div id="layer-actions">
+      <div class="layer-action-btn" id="btn-layer-up" title="Move Up">↑</div>
+      <div class="layer-action-btn" id="btn-layer-down" title="Move Down">↓</div>
+      <div class="layer-action-btn" id="btn-layer-del" title="Delete">✕</div>
+    </div>
+  </div>
+
+  <div id="canvas-area">
+    <div id="upload-hint">
+      <div class="big">＋</div>
+      <div class="txt">Click "+ Image" or drag images here</div>
+    </div>
+    <div id="canvas-wrapper">
+      <canvas id="main-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<div id="statusbar">
+  <span id="status-tool">Tool: Select</span>
+  <span id="status-layer">No layer selected</span>
+  <span id="status-pos"></span>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const state = {
+  layers: [],          // [{id, type, img, x, y, w, h, rot, clip, text, fontSize, color, name}]
+  activeId: null,
+  tool: 'select',      // select | lasso | text
+  canvasW: 800,
+  canvasH: 800,
+  scale: 1,
+  drag: null,          // {layerId, startX, startY, origX, origY}
+  resize: null,        // {layerId, handle, ...}
+  lasso: null,         // {layerId, points:[]}
+  nextId: 1,
+};
+
+// ─── Canvas setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('main-canvas');
+const ctx = canvas.getContext('2d');
+
+function setCanvasSize(w, h) {
+  state.canvasW = w; state.canvasH = h;
+  fitCanvas();
+}
+
+function fitCanvas() {
+  const area = document.getElementById('canvas-area');
+  const pad = 40;
+  const maxW = area.clientWidth - pad;
+  const maxH = area.clientHeight - pad;
+  state.scale = Math.min(maxW / state.canvasW, maxH / state.canvasH, 1);
+  canvas.width = state.canvasW;
+  canvas.height = state.canvasH;
+  canvas.style.width = (state.canvasW * state.scale) + 'px';
+  canvas.style.height = (state.canvasH * state.scale) + 'px';
+  render();
+}
+
+document.getElementById('canvas-size-select').addEventListener('change', e => {
+  const [w, h] = e.target.value.split(',').map(Number);
+  setCanvasSize(w, h);
+});
+
+window.addEventListener('resize', fitCanvas);
+
+// ─── Layers ──────────────────────────────────────────────────────────────────
+function addImageLayer(img, name) {
+  // Fit image to canvas, centered
+  const aspect = img.naturalWidth / img.naturalHeight;
+  let w = Math.min(img.naturalWidth, state.canvasW * 0.7);
+  let h = w / aspect;
+  if (h > state.canvasH * 0.7) { h = state.canvasH * 0.7; w = h * aspect; }
+  const x = (state.canvasW - w) / 2 + (Math.random() - 0.5) * 40;
+  const y = (state.canvasH - h) / 2 + (Math.random() - 0.5) * 40;
+  const layer = { id: state.nextId++, type: 'image', img, x, y, w, h, rot: 0, clip: null, name: name || 'Image' };
+  state.layers.push(layer);
+  state.activeId = layer.id;
+  updateLayerPanel();
+  render();
+  updateHint();
+}
+
+function addTextLayer(x, y) {
+  const text = prompt('Enter text:');
+  if (!text) return;
+  const layer = { id: state.nextId++, type: 'text', text, x, y, w: 200, h: 40, rot: 0, clip: null, fontSize: 32, color: '#111111', name: 'Text' };
+  state.layers.push(layer);
+  state.activeId = layer.id;
+  updateLayerPanel();
+  render();
+}
+
+function getActiveLayer() { return state.layers.find(l => l.id === state.activeId); }
+
+function deleteLayer(id) {
+  state.layers = state.layers.filter(l => l.id !== id);
+  if (state.activeId === id) state.activeId = state.layers.length ? state.layers[state.layers.length - 1].id : null;
+  updateLayerPanel();
+  render();
+  updateHint();
+}
+
+function moveLayerUp(id) {
+  const i = state.layers.findIndex(l => l.id === id);
+  if (i < state.layers.length - 1) { [state.layers[i], state.layers[i+1]] = [state.layers[i+1], state.layers[i]]; updateLayerPanel(); render(); }
+}
+function moveLayerDown(id) {
+  const i = state.layers.findIndex(l => l.id === id);
+  if (i > 0) { [state.layers[i], state.layers[i-1]] = [state.layers[i-1], state.layers[i]]; updateLayerPanel(); render(); }
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, state.canvasW, state.canvasH);
+  // Background
+  ctx.fillStyle = '#f5f0e8';
+  ctx.fillRect(0, 0, state.canvasW, state.canvasH);
+
+  for (const layer of state.layers) {
+    ctx.save();
+    ctx.translate(layer.x + layer.w / 2, layer.y + layer.h / 2);
+    ctx.rotate(layer.rot);
+
+    if (layer.clip && layer.clip.length > 2) {
+      ctx.beginPath();
+      const pts = layer.clip;
+      // clip points are relative to layer center
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      ctx.clip();
+    }
+
+    if (layer.type === 'image') {
+      ctx.drawImage(layer.img, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+    } else if (layer.type === 'text') {
+      ctx.font = `${layer.fontSize}px 'Helvetica Neue', sans-serif`;
+      ctx.fillStyle = layer.color;
+      ctx.textBaseline = 'top';
+      ctx.fillText(layer.text, -layer.w / 2, -layer.h / 2);
+    }
+
+    ctx.restore();
+
+    // Selection outline
+    if (layer.id === state.activeId) {
+      ctx.save();
+      ctx.translate(layer.x + layer.w / 2, layer.y + layer.h / 2);
+      ctx.rotate(layer.rot);
+      ctx.strokeStyle = '#4a9eff';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
+      ctx.setLineDash([]);
+      // Handles
+      drawHandles(ctx, layer.w, layer.h);
+      ctx.restore();
+    }
+  }
+
+  // Lasso preview
+  if (state.lasso && state.lasso.points.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#ff6b35';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    const pts = state.lasso.points;
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
+function drawHandles(ctx, w, h) {
+  const hs = 6;
+  const corners = [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]];
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#4a9eff';
+  ctx.lineWidth = 1.5;
+  for (const [hx, hy] of corners) {
+    ctx.fillRect(hx - hs/2, hy - hs/2, hs, hs);
+    ctx.strokeRect(hx - hs/2, hy - hs/2, hs, hs);
+  }
+  // Rotation handle
+  ctx.beginPath();
+  ctx.arc(0, -h/2 - 16, 4, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+}
+
+// ─── Hit testing ─────────────────────────────────────────────────────────────
+function canvasPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) / state.scale,
+    y: (e.clientY - rect.top) / state.scale,
+  };
+}
+
+function hitLayer(x, y) {
+  // Top layer first
+  for (let i = state.layers.length - 1; i >= 0; i--) {
+    const l = state.layers[i];
+    const dx = x - (l.x + l.w / 2);
+    const dy = y - (l.y + l.h / 2);
+    const cos = Math.cos(-l.rot), sin = Math.sin(-l.rot);
+    const lx = cos * dx - sin * dy;
+    const ly = sin * dx + cos * dy;
+    if (lx >= -l.w/2 && lx <= l.w/2 && ly >= -l.h/2 && ly <= l.h/2) return l;
+  }
+  return null;
+}
+
+function hitHandle(layer, x, y) {
+  const dx = x - (layer.x + layer.w / 2);
+  const dy = y - (layer.y + layer.h / 2);
+  const cos = Math.cos(-layer.rot), sin = Math.sin(-layer.rot);
+  const lx = cos * dx - sin * dy;
+  const ly = sin * dx + cos * dy;
+  const hs = 8;
+  const corners = [
+    {name:'tl', hx:-layer.w/2, hy:-layer.h/2},
+    {name:'tr', hx: layer.w/2, hy:-layer.h/2},
+    {name:'br', hx: layer.w/2, hy: layer.h/2},
+    {name:'bl', hx:-layer.w/2, hy: layer.h/2},
+  ];
+  for (const c of corners) {
+    if (Math.abs(lx - c.hx) < hs && Math.abs(ly - c.hy) < hs) return c.name;
+  }
+  // Rotation handle
+  if (Math.abs(lx) < hs && Math.abs(ly - (-layer.h/2 - 16)) < hs) return 'rot';
+  return null;
+}
+
+// ─── Mouse events ────────────────────────────────────────────────────────────
+let isDown = false;
+
+canvas.addEventListener('mousedown', e => {
+  const p = canvasPoint(e);
+  isDown = true;
+
+  if (state.tool === 'select') {
+    const active = getActiveLayer();
+    if (active) {
+      const handle = hitHandle(active, p.x, p.y);
+      if (handle) {
+        state.resize = { layerId: active.id, handle, startX: p.x, startY: p.y, origW: active.w, origH: active.h, origX: active.x, origY: active.y, origRot: active.rot };
+        return;
+      }
+    }
+    const hit = hitLayer(p.x, p.y);
+    if (hit) {
+      state.activeId = hit.id;
+      state.drag = { layerId: hit.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y };
+      updateLayerPanel();
+      render();
+    } else {
+      state.activeId = null;
+      updateLayerPanel();
+      render();
+    }
+  } else if (state.tool === 'lasso') {
+    const active = getActiveLayer();
+    if (!active || active.type !== 'image') { alert('Select an image layer first'); return; }
+    state.lasso = { layerId: active.id, points: [{ x: p.x, y: p.y }] };
+  } else if (state.tool === 'text') {
+    addTextLayer(p.x, p.y);
+    setTool('select');
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  const p = canvasPoint(e);
+  document.getElementById('status-pos').textContent = `${Math.round(p.x)}, ${Math.round(p.y)}`;
+
+  if (!isDown) return;
+
+  if (state.tool === 'select') {
+    if (state.drag) {
+      const layer = state.layers.find(l => l.id === state.drag.layerId);
+      if (layer) {
+        layer.x = state.drag.origX + (p.x - state.drag.startX);
+        layer.y = state.drag.origY + (p.y - state.drag.startY);
+        render();
+      }
+    } else if (state.resize) {
+      const layer = state.layers.find(l => l.id === state.resize.layerId);
+      if (layer) {
+        const dx = p.x - state.resize.startX;
+        const dy = p.y - state.resize.startY;
+        if (state.resize.handle === 'rot') {
+          const cx = layer.x + layer.w / 2;
+          const cy = layer.y + layer.h / 2;
+          layer.rot = Math.atan2(p.y - cy, p.x - cx) + Math.PI / 2;
+        } else {
+          const scale = Math.max(0.1, 1 + (dx + dy) / (state.resize.origW + state.resize.origH));
+          layer.w = state.resize.origW * scale;
+          layer.h = state.resize.origH * scale;
+          if (state.resize.handle === 'tl' || state.resize.handle === 'bl') layer.x = state.resize.origX + state.resize.origW - layer.w;
+          if (state.resize.handle === 'tl' || state.resize.handle === 'tr') layer.y = state.resize.origY + state.resize.origH - layer.h;
+        }
+        render();
+      }
+    }
+  } else if (state.tool === 'lasso' && state.lasso) {
+    state.lasso.points.push({ x: p.x, y: p.y });
+    render();
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  isDown = false;
+  if (state.tool === 'lasso' && state.lasso && state.lasso.points.length > 3) {
+    applyLasso();
+  }
+  state.drag = null;
+  state.resize = null;
+});
+
+canvas.addEventListener('mouseleave', () => {
+  if (state.tool === 'lasso' && state.lasso && state.lasso.points.length > 3) applyLasso();
+  isDown = false;
+  state.drag = null;
+  state.resize = null;
+});
+
+// ─── Lasso crop ──────────────────────────────────────────────────────────────
+function applyLasso() {
+  const layer = state.layers.find(l => l.id === state.lasso.layerId);
+  if (!layer) { state.lasso = null; return; }
+  // Convert canvas points to layer-local coords (relative to layer center)
+  const cx = layer.x + layer.w / 2;
+  const cy = layer.y + layer.h / 2;
+  const cos = Math.cos(-layer.rot), sin = Math.sin(-layer.rot);
+  layer.clip = state.lasso.points.map(p => {
+    const dx = p.x - cx, dy = p.y - cy;
+    return { x: cos * dx - sin * dy, y: sin * dx + cos * dy };
+  });
+  state.lasso = null;
+  render();
+}
+
+function clearClip() {
+  const layer = getActiveLayer();
+  if (layer) { layer.clip = null; render(); }
+}
+
+// ─── Tool switching ───────────────────────────────────────────────────────────
+function setTool(t) {
+  state.tool = t;
+  document.querySelectorAll('.tool-btn[id^="btn-"]').forEach(b => b.classList.remove('active'));
+  const map = { select: 'btn-select', lasso: 'btn-lasso', text: 'btn-text' };
+  if (map[t]) document.getElementById(map[t]).classList.add('active');
+  document.getElementById('status-tool').textContent = 'Tool: ' + t.charAt(0).toUpperCase() + t.slice(1);
+  canvas.style.cursor = t === 'lasso' ? 'crosshair' : t === 'text' ? 'text' : 'default';
+}
+
+document.getElementById('btn-select').addEventListener('click', () => setTool('select'));
+document.getElementById('btn-lasso').addEventListener('click', () => {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'image') { alert('Select an image layer first, then use Lasso to crop it.'); return; }
+  setTool('lasso');
+});
+document.getElementById('btn-text').addEventListener('click', () => setTool('text'));
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('file-input').click());
+document.getElementById('file-input').addEventListener('change', e => {
+  for (const file of e.target.files) loadImageFile(file);
+  e.target.value = '';
+});
+
+function loadImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => addImageLayer(img, file.name.replace(/\.[^.]+$/, ''));
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// Drag & drop onto canvas area
+const canvasArea = document.getElementById('canvas-area');
+canvasArea.addEventListener('dragover', e => { e.preventDefault(); canvasArea.style.outline = '2px dashed #4a9eff'; });
+canvasArea.addEventListener('dragleave', () => { canvasArea.style.outline = ''; });
+canvasArea.addEventListener('drop', e => {
+  e.preventDefault(); canvasArea.style.outline = '';
+  for (const file of e.dataTransfer.files) if (file.type.startsWith('image/')) loadImageFile(file);
+});
+
+// ─── Layer panel ─────────────────────────────────────────────────────────────
+function updateLayerPanel() {
+  const list = document.getElementById('layer-list');
+  list.innerHTML = '';
+  // Reverse order (top layer first in panel)
+  for (let i = state.layers.length - 1; i >= 0; i--) {
+    const layer = state.layers[i];
+    const item = document.createElement('div');
+    item.className = 'layer-item' + (layer.id === state.activeId ? ' active' : '');
+    item.dataset.id = layer.id;
+
+    let thumbHtml = '';
+    if (layer.type === 'image') {
+      const tc = document.createElement('canvas');
+      tc.width = 28; tc.height = 28;
+      const tc2 = tc.getContext('2d');
+      tc2.drawImage(layer.img, 0, 0, 28, 28);
+      thumbHtml = `<img class="layer-thumb" src="${tc.toDataURL()}" />`;
+    } else {
+      thumbHtml = `<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#aaa">T</div>`;
+    }
+
+    item.innerHTML = `${thumbHtml}<span class="layer-name">${layer.name}</span><span class="layer-del" data-del="${layer.id}">✕</span>`;
+    item.addEventListener('click', ev => {
+      if (ev.target.dataset.del) { deleteLayer(Number(ev.target.dataset.del)); return; }
+      state.activeId = layer.id;
+      updateLayerPanel();
+      render();
+      document.getElementById('status-layer').textContent = layer.name;
+    });
+    list.appendChild(item);
+  }
+  const active = getActiveLayer();
+  document.getElementById('status-layer').textContent = active ? active.name : 'No layer selected';
+}
+
+document.getElementById('btn-layer-up').addEventListener('click', () => { if (state.activeId) moveLayerUp(state.activeId); });
+document.getElementById('btn-layer-down').addEventListener('click', () => { if (state.activeId) moveLayerDown(state.activeId); });
+document.getElementById('btn-layer-del').addEventListener('click', () => { if (state.activeId) deleteLayer(state.activeId); });
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-export').addEventListener('click', () => {
+  // Temporarily hide selection
+  const prevActive = state.activeId;
+  state.activeId = null;
+  render();
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'collage.png'; a.click();
+    URL.revokeObjectURL(url);
+    state.activeId = prevActive;
+    render();
+  });
+});
+
+// ─── Keyboard shortcuts ───────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'v' || e.key === 'V') setTool('select');
+  if (e.key === 'l' || e.key === 'L') setTool('lasso');
+  if (e.key === 't' || e.key === 'T') setTool('text');
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.activeId) deleteLayer(state.activeId);
+  if (e.key === 'Escape') { state.lasso = null; setTool('select'); render(); }
+  if (e.key === 'x' || e.key === 'X') clearClip();
+});
+
+// ─── Hint ─────────────────────────────────────────────────────────────────────
+function updateHint() {
+  document.getElementById('upload-hint').style.display = state.layers.length ? 'none' : 'flex';
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+fitCanvas();
+updateHint();
+</script>
+</body>
+</html>
