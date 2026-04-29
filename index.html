@@ -410,6 +410,10 @@ input[type="range"]{
   <div class="sep"></div>
   <button class="action-btn" id="btn-upload" title="Upload Image">+ Image</button>
   <button class="action-btn" id="btn-credit" title="Add Credit">+ Credit</button>
+  <button class="action-btn" id="btn-sticker" title="Add Sticker">+ Sticker</button>
+  <button class="action-btn" id="btn-shape-circle" title="Add Circle">+ Circle</button>
+  <button class="action-btn" id="btn-shape-square" title="Add Square">+ Square</button>
+  <button class="action-btn" id="btn-shape-grid" title="Add Grid">+ Grid</button>
   <input type="file" id="file-input" accept="image/*" multiple style="display:none">
   <div class="sep"></div>
   <button class="icon-btn" id="btn-undo" title="Undo (Ctrl/Cmd+Z)">&#8630;</button>
@@ -520,6 +524,21 @@ input[type="range"]{
         </div>
       </div>
 
+      <div class="section hidden" id="sticker-section">
+        <h3>Sticker</h3>
+        <div class="stack">
+          <select class="field font-select" id="sticker-edge-style">
+            <option value="note">Note Edge</option>
+            <option value="stamp">Stamp Edge</option>
+            <option value="plain">Plain Edge</option>
+          </select>
+          <select class="field font-select" id="sticker-shadow-style">
+            <option value="soft">Soft Shadow</option>
+            <option value="none">No Shadow</option>
+          </select>
+        </div>
+      </div>
+
       <div class="section hidden" id="path-section">
         <h3>Path</h3>
         <div class="stack">
@@ -536,6 +555,10 @@ input[type="range"]{
           <input type="range" id="path-loose" min="0" max="100" value="14">
           <div class="row"><label>Rough</label><span class="value" id="path-rough-val">18</span></div>
           <input type="range" id="path-rough" min="0" max="100" value="18">
+          <select class="field font-select" id="path-rough-style">
+            <option value="off">Clean Brush</option>
+            <option value="rough">Hand-drawn Brush</option>
+          </select>
           <div class="row"><label>Spacing</label><span class="value" id="path-spacing-val">0</span></div>
           <input type="range" id="path-spacing" min="-10" max="40" value="0">
           <select class="field font-select" id="path-arrow-style">
@@ -553,6 +576,29 @@ input[type="range"]{
             <button class="mini-btn" id="btn-path-delete-point" type="button">Delete Point</button>
           </div>
           <p class="subtle">Drag points to edit. Double-click a segment to add a point. Shift-click a point to remove it.</p>
+        </div>
+      </div>
+
+      <div class="section hidden" id="shape-section">
+        <h3>Shape</h3>
+        <div class="stack">
+          <select class="field font-select" id="shape-kind">
+            <option value="circle">Circle</option>
+            <option value="square">Square</option>
+            <option value="grid">Grid</option>
+          </select>
+          <div class="row"><label>Stroke</label><span class="value" id="shape-stroke-val">4</span></div>
+          <input type="range" id="shape-stroke" min="0" max="32" value="4">
+          <div class="row"><label>Rough</label><span class="value" id="shape-rough-val">20</span></div>
+          <input type="range" id="shape-rough" min="0" max="100" value="20">
+          <select class="field font-select" id="shape-rough-style">
+            <option value="off">Clean Stroke</option>
+            <option value="rough">Rough Stroke</option>
+          </select>
+          <div class="inline-actions">
+            <input class="field" id="shape-stroke-color" type="color" value="#111111">
+            <input class="field" id="shape-fill-color" type="color" value="#ffffff">
+          </div>
         </div>
       </div>
 
@@ -623,7 +669,29 @@ function defaultTextLayer(x, y, text, name) {
     role: 'text',
     bgColor: null,
     paddingX: 0,
-    paddingY: 0
+    paddingY: 0,
+    stickerEdge: 'note',
+    stickerShadow: 'soft'
+  };
+}
+
+function defaultShapeLayer(kind) {
+  return {
+    id: state.nextId++,
+    type: 'shape',
+    x: state.canvasW * 0.5 - 90,
+    y: state.canvasH * 0.5 - 90,
+    w: kind === 'grid' ? 220 : 180,
+    h: kind === 'grid' ? 180 : 180,
+    rot: 0,
+    clip: null,
+    name: kind.charAt(0).toUpperCase() + kind.slice(1),
+    shapeKind: kind,
+    strokeWidth: 4,
+    rough: 20,
+    roughStyle: 'off',
+    strokeColor: '#111111',
+    fillColor: kind === 'grid' ? '#ffffff' : '#ffffff'
   };
 }
 
@@ -646,6 +714,7 @@ function defaultPathLayer(kind, points, name) {
     smooth: kind === 'blob' ? 60 : 35,
     loose: kind === 'blob' ? 24 : 14,
     rough: kind === 'brush' ? 18 : 8,
+    roughStyle: kind === 'brush' ? 'rough' : 'off',
     strokeColor: '#111111',
     fillColor: kind === 'blob' ? '#d98f37' : '#d9b98b',
     spacing: 0,
@@ -835,6 +904,15 @@ function makeSnapshot() {
         plain.bgColor = layer.bgColor;
         plain.paddingX = layer.paddingX;
         plain.paddingY = layer.paddingY;
+        plain.stickerEdge = layer.stickerEdge;
+        plain.stickerShadow = layer.stickerShadow;
+      } else if (layer.type === 'shape') {
+        plain.shapeKind = layer.shapeKind;
+        plain.strokeWidth = layer.strokeWidth;
+        plain.rough = layer.rough;
+        plain.roughStyle = layer.roughStyle;
+        plain.strokeColor = layer.strokeColor;
+        plain.fillColor = layer.fillColor;
       } else if (layer.type === 'path') {
         plain.pathKind = layer.pathKind;
         plain.points = clonePathPoints(layer.points);
@@ -843,6 +921,7 @@ function makeSnapshot() {
         plain.smooth = layer.smooth;
         plain.loose = layer.loose;
         plain.rough = layer.rough;
+        plain.roughStyle = layer.roughStyle;
         plain.strokeColor = layer.strokeColor;
         plain.fillColor = layer.fillColor;
         plain.spacing = layer.spacing;
@@ -914,7 +993,26 @@ function hydrateLayer(plain) {
     role: plain.role || 'text',
     bgColor: plain.bgColor || null,
     paddingX: plain.paddingX || 0,
-    paddingY: plain.paddingY || 0
+    paddingY: plain.paddingY || 0,
+    stickerEdge: plain.stickerEdge || 'note',
+    stickerShadow: plain.stickerShadow || 'soft'
+  });
+  if (plain.type === 'shape') return Promise.resolve({
+    id: plain.id,
+    type: 'shape',
+    x: plain.x,
+    y: plain.y,
+    w: plain.w,
+    h: plain.h,
+    rot: plain.rot,
+    clip: cloneClip(plain.clip),
+    name: plain.name,
+    shapeKind: plain.shapeKind || 'square',
+    strokeWidth: plain.strokeWidth || 0,
+    rough: plain.rough || 0,
+    roughStyle: plain.roughStyle || 'off',
+    strokeColor: plain.strokeColor || '#111111',
+    fillColor: plain.fillColor || '#ffffff'
   });
   if (plain.type === 'path') return Promise.resolve({
     id: plain.id,
@@ -933,6 +1031,7 @@ function hydrateLayer(plain) {
     smooth: plain.smooth,
     loose: plain.loose || 0,
     rough: plain.rough || 0,
+    roughStyle: plain.roughStyle || (plain.pathKind === 'brush' ? 'rough' : 'off'),
     strokeColor: plain.strokeColor,
     fillColor: plain.fillColor,
     spacing: plain.spacing || 0,
@@ -1273,34 +1372,34 @@ function renderRoughBrush(ctxRef, points, layer) {
     ctxRef.stroke();
   }
   const rough = Number(layer.rough || 0);
-  if (rough <= 0) return;
+  if (layer.roughStyle !== 'rough' || rough <= 0) return;
   const overlays = rough > 55 ? 3 : 2;
   for (let k = 0; k < overlays; k++) {
-    const jitter = 0.18 + rough / 150;
+    const jitter = 0.24 + rough / 115;
     const ghost = points.map(function (p, idx) {
       const amp = (Math.sin(idx * 1.7 + k * 2.1) + Math.cos(idx * 0.9 + k * 1.3)) * layer.strokeWidth * jitter;
       return {
-        x: p.x + Math.sin(idx * 0.7 + k) * amp * 0.18,
-        y: p.y + Math.cos(idx * 0.8 + k * 1.6) * amp * 0.18
+        x: p.x + Math.sin(idx * 0.7 + k) * amp * 0.26,
+        y: p.y + Math.cos(idx * 0.8 + k * 1.6) * amp * 0.24
       };
     });
     ctxRef.save();
-    ctxRef.globalAlpha = 0.22;
+    ctxRef.globalAlpha = 0.28;
     drawSmoothPath(ctxRef, ghost, layer.closed);
-    ctxRef.lineWidth = Math.max(1, layer.strokeWidth * (0.68 + k * 0.1));
+    ctxRef.lineWidth = Math.max(1, layer.strokeWidth * (0.62 + k * 0.12));
     ctxRef.strokeStyle = layer.strokeColor;
     ctxRef.stroke();
     ctxRef.restore();
   }
   if (rough > 24 && layer.strokeWidth > 0) {
     const jitterLine = points.map(function (p, idx) {
-      const wobble = (Math.sin(idx * 0.55) + Math.cos(idx * 0.42 + 1.3)) * (rough / 100) * layer.strokeWidth * 0.14;
+      const wobble = (Math.sin(idx * 0.55) + Math.cos(idx * 0.42 + 1.3)) * (rough / 100) * layer.strokeWidth * 0.2;
       return { x: p.x + wobble, y: p.y - wobble * 0.5 };
     });
     ctxRef.save();
-    ctxRef.globalAlpha = 0.16;
+    ctxRef.globalAlpha = 0.22;
     drawSmoothPath(ctxRef, jitterLine, layer.closed);
-    ctxRef.lineWidth = Math.max(0.6, layer.strokeWidth * 0.55);
+    ctxRef.lineWidth = Math.max(0.6, layer.strokeWidth * 0.52);
     ctxRef.strokeStyle = layer.strokeColor;
     ctxRef.stroke();
     ctxRef.restore();
@@ -1550,6 +1649,42 @@ function addCreditLayer() {
   setStatus('Credit layer added');
 }
 
+function addStickerLayer() {
+  const layer = defaultTextLayer(state.canvasW * 0.5 - 110, state.canvasH * 0.5 - 80, 'note', 'Sticker');
+  layer.fontFamily = 'IBM Plex Sans';
+  layer.fontSize = 22;
+  layer.lineHeight = 1.2;
+  layer.letterSpacing = 0;
+  layer.color = '#222222';
+  layer.align = 'center';
+  layer.role = 'sticker';
+  layer.bgColor = '#ffffff';
+  layer.paddingX = 18;
+  layer.paddingY = 18;
+  layer.stickerEdge = 'note';
+  layer.stickerShadow = 'soft';
+  layer.w = 220;
+  layer.h = 160;
+  state.layers.push(layer);
+  state.activeId = layer.id;
+  updateLayerPanel();
+  syncInspector();
+  render();
+  pushHistorySnapshot();
+  setStatus('Sticker added');
+}
+
+function addShapeLayer(kind) {
+  const layer = defaultShapeLayer(kind);
+  state.layers.push(layer);
+  state.activeId = layer.id;
+  updateLayerPanel();
+  syncInspector();
+  render();
+  pushHistorySnapshot();
+  setStatus(layer.name + ' added');
+}
+
 function addTextLayer(x, y) {
   const layer = defaultTextLayer(x || 140, y || 140, 'Text', 'Text');
   updateTextMetrics(layer);
@@ -1608,6 +1743,14 @@ function duplicateLayer() {
     copyText.name = active.name + ' Copy';
     state.layers.push(copyText);
     state.activeId = copyText.id;
+  } else if (active.type === 'shape') {
+    const copyShape = JSON.parse(JSON.stringify(active));
+    copyShape.id = state.nextId++;
+    copyShape.x += 18;
+    copyShape.y += 18;
+    copyShape.name = active.name + ' Copy';
+    state.layers.push(copyShape);
+    state.activeId = copyShape.id;
   } else if (active.type === 'path') {
     const copyPath = JSON.parse(JSON.stringify(active));
     copyPath.id = state.nextId++;
@@ -1832,6 +1975,10 @@ function renderTextLayer(layer) {
     }
     ctx.fillStyle = layer.color;
   }
+  if (layer.role === 'sticker') {
+    renderStickerBackground(layer);
+    ctx.fillStyle = layer.color;
+  }
   const leftPad = layer.paddingX || 0;
   const topPad = layer.paddingY || 0;
   for (let i = 0; i < lines.length; i++) {
@@ -1852,6 +1999,150 @@ function renderTextLayer(layer) {
         ctx.fillText(ch, cursor, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
         cursor += measureCtx.measureText(ch).width + layer.letterSpacing;
       }
+    }
+  }
+}
+
+function buildStickerPath(layer) {
+  const x = -layer.w / 2;
+  const y = -layer.h / 2;
+  const w = layer.w;
+  const h = layer.h;
+  const style = layer.stickerEdge || 'note';
+  const path = new Path2D();
+  if (style === 'plain') {
+    path.rect(x, y, w, h);
+    return path;
+  }
+  if (style === 'stamp') {
+    const scallop = 10;
+    for (let px = x + scallop; px < x + w - scallop / 2; px += scallop * 0.95) {
+      path.moveTo(px, y);
+      path.arc(px, y, scallop * 0.5, Math.PI, 0, false);
+      path.moveTo(px, y + h);
+      path.arc(px, y + h, scallop * 0.5, Math.PI, 0, true);
+    }
+    for (let py = y + scallop; py < y + h - scallop / 2; py += scallop * 0.95) {
+      path.moveTo(x, py);
+      path.arc(x, py, scallop * 0.5, -Math.PI / 2, Math.PI / 2, false);
+      path.moveTo(x + w, py);
+      path.arc(x + w, py, scallop * 0.5, Math.PI / 2, -Math.PI / 2, false);
+    }
+    path.rect(x + scallop * 0.5, y + scallop * 0.5, w - scallop, h - scallop);
+    return path;
+  }
+  const tooth = 16;
+  path.moveTo(x, y + 6);
+  for (let px = x; px < x + w; px += tooth) {
+    path.lineTo(Math.min(x + w, px + tooth * 0.5), y + (px / tooth % 2 === 0 ? 1 : 7));
+    path.lineTo(Math.min(x + w, px + tooth), y + 5);
+  }
+  path.lineTo(x + w, y + h - 6);
+  for (let px = x + w; px > x; px -= tooth) {
+    path.lineTo(Math.max(x, px - tooth * 0.5), y + h - ((px / tooth % 2 === 0) ? 1 : 7));
+    path.lineTo(Math.max(x, px - tooth), y + h - 5);
+  }
+  path.closePath();
+  return path;
+}
+
+function renderStickerBackground(layer) {
+  const stickerPath = buildStickerPath(layer);
+  if (layer.stickerShadow !== 'none') {
+    ctx.save();
+    ctx.shadowColor = 'rgba(22,15,8,0.14)';
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = layer.bgColor || '#ffffff';
+    ctx.fill(stickerPath);
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.fillStyle = layer.bgColor || '#ffffff';
+  ctx.fill(stickerPath);
+  ctx.clip(stickerPath);
+  const tex = getPaperTexture('#fbfaf5');
+  ctx.globalAlpha = 0.32;
+  ctx.drawImage(tex, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = 'rgba(25,19,13,0.12)';
+  ctx.lineWidth = 1;
+  ctx.stroke(stickerPath);
+  ctx.restore();
+}
+
+function renderShapeLayer(layer) {
+  ctx.save();
+  const x = -layer.w / 2;
+  const y = -layer.h / 2;
+  const w = layer.w;
+  const h = layer.h;
+  if (layer.shapeKind === 'circle') {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+    if (layer.fillColor && layer.fillColor !== 'transparent') {
+      ctx.fillStyle = layer.fillColor;
+      ctx.fill();
+    }
+    if (layer.strokeWidth > 0) renderShapeStroke(layer, function (target) {
+      target.beginPath();
+      target.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+    });
+  } else if (layer.shapeKind === 'square') {
+    if (layer.fillColor && layer.fillColor !== 'transparent') {
+      ctx.fillStyle = layer.fillColor;
+      ctx.fillRect(x, y, w, h);
+    }
+    if (layer.strokeWidth > 0) renderShapeStroke(layer, function (target) {
+      target.beginPath();
+      target.rect(x, y, w, h);
+    });
+  } else if (layer.shapeKind === 'grid') {
+    ctx.fillStyle = layer.fillColor;
+    ctx.fillRect(x, y, w, h);
+    const cols = 6, rows = 6;
+    for (let c = 0; c <= cols; c++) {
+      const gx = x + (w / cols) * c;
+      renderShapeStroke(layer, function (target) {
+        target.beginPath();
+        target.moveTo(gx, y);
+        target.lineTo(gx, y + h);
+      }, 0.75);
+    }
+    for (let r = 0; r <= rows; r++) {
+      const gy = y + (h / rows) * r;
+      renderShapeStroke(layer, function (target) {
+        target.beginPath();
+        target.moveTo(x, gy);
+        target.lineTo(x + w, gy);
+      }, 0.75);
+    }
+    renderShapeStroke(layer, function (target) {
+      target.beginPath();
+      target.rect(x, y, w, h);
+    });
+  }
+  ctx.restore();
+}
+
+function renderShapeStroke(layer, drawFn, widthScale) {
+  const scale = widthScale || 1;
+  drawFn(ctx);
+  ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale);
+  ctx.strokeStyle = layer.strokeColor;
+  ctx.stroke();
+  if (layer.roughStyle === 'rough' && layer.rough > 0) {
+    const passes = layer.rough > 55 ? 3 : 2;
+    for (let i = 0; i < passes; i++) {
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.translate((Math.random() - 0.5) * layer.rough * 0.08, (Math.random() - 0.5) * layer.rough * 0.08);
+      drawFn(ctx);
+      ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.82 + i * 0.08));
+      ctx.strokeStyle = layer.strokeColor;
+      ctx.stroke();
+      ctx.restore();
     }
   }
 }
@@ -2026,6 +2317,8 @@ function render() {
       }
     } else if (layer.type === 'text') {
       renderTextLayer(layer);
+    } else if (layer.type === 'shape') {
+      renderShapeLayer(layer);
     } else if (layer.type === 'path') {
       renderPathLayer(layer);
     }
@@ -2220,8 +2513,12 @@ function updateLayerPanel() {
       tc.height = 30;
       tc.getContext('2d').drawImage(layer.img, 0, 0, 30, 30);
       thumb = '<img class="layer-thumb" src="' + tc.toDataURL() + '" alt="">';
-    } else {
+    } else if (layer.type === 'text') {
       thumb = '<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#fffaf2;background:#d98f37">T</div>';
+    } else if (layer.type === 'shape') {
+      thumb = '<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#fffaf2;background:#8c7b68">S</div>';
+    } else {
+      thumb = '<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#fffaf2;background:#3f3f3f">P</div>';
     }
     item.innerHTML = thumb + '<span class="layer-name">' + layer.name + '</span><span class="layer-del" data-del="' + layer.id + '">x</span>';
     item.addEventListener('click', function (ev) {
@@ -2271,7 +2568,9 @@ function syncInspector() {
   document.getElementById('layer-section').classList.toggle('hidden', !active);
   document.getElementById('image-section').classList.toggle('hidden', !active || active.type !== 'image');
   document.getElementById('text-section').classList.toggle('hidden', !active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath')));
+  document.getElementById('sticker-section').classList.toggle('hidden', !active || active.type !== 'text' || active.role !== 'sticker');
   document.getElementById('path-section').classList.toggle('hidden', !active || active.type !== 'path');
+  document.getElementById('shape-section').classList.toggle('hidden', !active || active.type !== 'shape');
   if (!active) return;
 
   document.getElementById('layer-name').value = active.name || '';
@@ -2304,6 +2603,19 @@ function syncInspector() {
     document.querySelectorAll('#text-align-group .seg-btn').forEach(function (node) {
       node.classList.toggle('active', node.dataset.align === (active.align || 'left'));
     });
+    if (active.type === 'text' && active.role === 'sticker') {
+      document.getElementById('sticker-edge-style').value = active.stickerEdge || 'note';
+      document.getElementById('sticker-shadow-style').value = active.stickerShadow || 'soft';
+    }
+  } else if (active.type === 'shape') {
+    document.getElementById('shape-kind').value = active.shapeKind;
+    document.getElementById('shape-stroke').value = active.strokeWidth || 0;
+    document.getElementById('shape-rough').value = active.rough || 0;
+    document.getElementById('shape-rough-style').value = active.roughStyle || 'off';
+    document.getElementById('shape-stroke-color').value = active.strokeColor || '#111111';
+    document.getElementById('shape-fill-color').value = active.fillColor || '#ffffff';
+    syncRangeValue('shape-stroke-val', active.strokeWidth || 0);
+    syncRangeValue('shape-rough-val', active.rough || 0);
   }
   if (active.type === 'path') {
     document.getElementById('path-kind').value = active.pathKind;
@@ -2311,6 +2623,7 @@ function syncInspector() {
     document.getElementById('path-smooth').value = active.smooth;
     document.getElementById('path-loose').value = active.loose || 0;
     document.getElementById('path-rough').value = active.rough || 0;
+    document.getElementById('path-rough-style').value = active.roughStyle || (active.pathKind === 'brush' ? 'rough' : 'off');
     document.getElementById('path-spacing').value = active.spacing || 0;
     document.getElementById('path-arrow-style').value = active.arrowStyle || 'none';
     document.getElementById('path-stroke-color').value = active.strokeColor;
@@ -2495,6 +2808,10 @@ document.getElementById('btn-blob').addEventListener('click', function () { setT
 document.getElementById('btn-pathtext').addEventListener('click', function () { setTool('pathtext'); });
 document.getElementById('btn-upload').addEventListener('click', function () { document.getElementById('file-input').click(); });
 document.getElementById('btn-credit').addEventListener('click', addCreditLayer);
+document.getElementById('btn-sticker').addEventListener('click', addStickerLayer);
+document.getElementById('btn-shape-circle').addEventListener('click', function () { addShapeLayer('circle'); });
+document.getElementById('btn-shape-square').addEventListener('click', function () { addShapeLayer('square'); });
+document.getElementById('btn-shape-grid').addEventListener('click', function () { addShapeLayer('grid'); });
 document.getElementById('btn-layer-up').addEventListener('click', function () { if (state.activeId) moveLayerUp(state.activeId); });
 document.getElementById('btn-layer-down').addEventListener('click', function () { if (state.activeId) moveLayerDown(state.activeId); });
 document.getElementById('btn-layer-del').addEventListener('click', function () { if (state.activeId) deleteLayer(state.activeId); });
@@ -2536,7 +2853,7 @@ document.getElementById('canvas-size-select').addEventListener('change', functio
 document.getElementById('layer-name').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active) return;
-  active.name = this.value || (active.type === 'image' ? 'Image' : active.type === 'path' ? 'Path' : 'Text');
+  active.name = this.value || (active.type === 'image' ? 'Image' : active.type === 'path' ? 'Path' : active.type === 'shape' ? 'Shape' : 'Text');
   updateLayerPanel();
   scheduleHistoryCommit();
 });
@@ -2589,7 +2906,7 @@ document.getElementById('text-content').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.text = this.value || 'Text';
-  if (active.type === 'text') updateTextMetrics(active);
+  if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   render();
   scheduleHistoryCommit();
 });
@@ -2598,7 +2915,7 @@ document.getElementById('text-font').addEventListener('change', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.fontFamily = this.value;
-  if (active.type === 'text') updateTextMetrics(active);
+  if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   render();
   pushHistorySnapshot();
 });
@@ -2607,7 +2924,7 @@ document.getElementById('text-size').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.fontSize = Number(this.value);
-  if (active.type === 'text') updateTextMetrics(active);
+  if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   syncRangeValue('text-size-val', this.value);
   render();
 });
@@ -2617,7 +2934,7 @@ document.getElementById('text-leading').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.lineHeight = Number(this.value);
-  if (active.type === 'text') updateTextMetrics(active);
+  if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   syncRangeValue('text-leading-val', Number(this.value).toFixed(2));
   render();
 });
@@ -2627,7 +2944,7 @@ document.getElementById('text-letter').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.letterSpacing = Number(this.value);
-  if (active.type === 'text') updateTextMetrics(active);
+  if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   syncRangeValue('text-letter-val', this.value);
   render();
 });
@@ -2652,6 +2969,22 @@ document.querySelectorAll('#text-align-group .seg-btn').forEach(function (button
     render();
     pushHistorySnapshot();
   });
+});
+
+document.getElementById('sticker-edge-style').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'text' || active.role !== 'sticker') return;
+  active.stickerEdge = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('sticker-shadow-style').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'text' || active.role !== 'sticker') return;
+  active.stickerShadow = this.value;
+  render();
+  pushHistorySnapshot();
 });
 
 document.getElementById('path-kind').addEventListener('change', function () {
@@ -2705,6 +3038,14 @@ document.getElementById('path-rough').addEventListener('input', function () {
 });
 document.getElementById('path-rough').addEventListener('change', pushHistorySnapshot);
 
+document.getElementById('path-rough-style').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.roughStyle = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
 document.getElementById('path-spacing').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
@@ -2737,6 +3078,58 @@ document.getElementById('path-arrow-style').addEventListener('change', function 
   render();
   pushHistorySnapshot();
 });
+
+document.getElementById('shape-kind').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.shapeKind = this.value;
+  active.name = this.value.charAt(0).toUpperCase() + this.value.slice(1);
+  updateLayerPanel();
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('shape-stroke').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.strokeWidth = Number(this.value);
+  syncRangeValue('shape-stroke-val', this.value);
+  render();
+});
+document.getElementById('shape-stroke').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-rough').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.rough = Number(this.value);
+  syncRangeValue('shape-rough-val', this.value);
+  render();
+});
+document.getElementById('shape-rough').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-rough-style').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.roughStyle = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('shape-stroke-color').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.strokeColor = this.value;
+  render();
+});
+document.getElementById('shape-stroke-color').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-fill-color').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.fillColor = this.value;
+  render();
+});
+document.getElementById('shape-fill-color').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('btn-path-toggle-close').addEventListener('click', function () {
   const active = getActiveLayer();
