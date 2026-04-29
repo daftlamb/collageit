@@ -470,6 +470,7 @@ input[type="range"]{
           <div class="inline-actions">
             <button class="mini-btn" id="btn-clear-crop">Clear Crop</button>
             <button class="mini-btn" id="btn-duplicate">Duplicate</button>
+            <button class="mini-btn" id="btn-layer-lock">Lock</button>
           </div>
         </div>
       </div>
@@ -673,6 +674,7 @@ function defaultTextLayer(x, y, text, name) {
     color: '#111111',
     align: 'left',
     role: 'text',
+    locked: false,
     bgColor: null,
     paddingX: 0,
     paddingY: 0,
@@ -690,6 +692,7 @@ function defaultShapeLayer(kind) {
     w: kind === 'grid' ? 220 : 180,
     h: kind === 'grid' ? 180 : 180,
     rot: 0,
+    locked: false,
     clip: null,
     name: kind.charAt(0).toUpperCase() + kind.slice(1),
     shapeKind: kind,
@@ -711,6 +714,7 @@ function defaultPathLayer(kind, points, name) {
     w: normalized.w,
     h: normalized.h,
     rot: 0,
+    locked: false,
     clip: null,
     name: name || (kind === 'textpath' ? 'Path Text' : kind.charAt(0).toUpperCase() + kind.slice(1)),
     pathKind: kind,
@@ -813,8 +817,8 @@ function simplifyDouglasPeucker(points, epsilon) {
 }
 
 function normalizePathPoints(points, closed) {
-  const stepped = simplifyDrawPoints(points, closed ? 18 : 15);
-  const simple = simplifyDouglasPeucker(stepped, closed ? 6.5 : 5.2);
+  const stepped = simplifyDrawPoints(points, closed ? 22 : 20);
+  const simple = simplifyDouglasPeucker(stepped, closed ? 8.2 : 7.4);
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -890,6 +894,7 @@ function makeSnapshot() {
         w: layer.w,
         h: layer.h,
         rot: layer.rot,
+        locked: !!layer.locked,
         clip: cloneClip(layer.clip),
         name: layer.name
       };
@@ -987,6 +992,7 @@ function hydrateLayer(plain) {
     w: plain.w,
     h: plain.h,
     rot: plain.rot,
+    locked: !!plain.locked,
     clip: cloneClip(plain.clip),
     name: plain.name,
     text: plain.text,
@@ -1011,6 +1017,7 @@ function hydrateLayer(plain) {
     w: plain.w,
     h: plain.h,
     rot: plain.rot,
+    locked: !!plain.locked,
     clip: cloneClip(plain.clip),
     name: plain.name,
     shapeKind: plain.shapeKind || 'square',
@@ -1028,6 +1035,7 @@ function hydrateLayer(plain) {
     w: plain.w,
     h: plain.h,
     rot: plain.rot,
+    locked: !!plain.locked,
     clip: cloneClip(plain.clip),
     name: plain.name,
     pathKind: plain.pathKind === 'arrow' ? 'brush' : plain.pathKind,
@@ -1064,6 +1072,7 @@ function hydrateLayer(plain) {
         w: plain.w,
         h: plain.h,
         rot: plain.rot,
+        locked: !!plain.locked,
         clip: cloneClip(plain.clip),
         name: plain.name,
         effects: cloneEffects(plain.effects),
@@ -1165,6 +1174,10 @@ function layoutCreditLayer(layer) {
   layer.paddingX = 18;
   layer.paddingY = Math.max(6, Math.round((blockH - layer.fontSize * layer.lineHeight) * 0.5));
   layer.rot = 0;
+}
+
+function isLayerLocked(layer) {
+  return !!(layer && layer.locked);
 }
 
 function isLockedCreditLayer(layer) {
@@ -1420,17 +1433,24 @@ function chainMetaballSegments(segs) {
 }
 
 function renderRoughBrush(ctxRef, points, layer) {
-  drawSmoothPath(ctxRef, points, layer.closed);
-  if (layer.strokeWidth > 0) {
-    ctxRef.lineWidth = layer.strokeWidth;
-    ctxRef.strokeStyle = layer.strokeColor;
-    ctxRef.stroke();
-  }
   const rough = Number(layer.rough || 0);
-  if (layer.roughStyle !== 'rough' || rough <= 0) return;
-  renderSegmentedRoughStroke(ctxRef, points, layer, 1.2, 0.22, 0.92, 0.55);
-  renderSegmentedRoughStroke(ctxRef, points, layer, 3.6, 0.14, 0.7, 0.34);
-  if (rough > 38) renderSegmentedRoughStroke(ctxRef, points, layer, 7.4, 0.1, 0.5, 0.22);
+  if (layer.roughStyle !== 'rough' || rough <= 0) {
+    drawSmoothPath(ctxRef, points, layer.closed);
+    if (layer.strokeWidth > 0) {
+      ctxRef.lineWidth = layer.strokeWidth;
+      ctxRef.strokeStyle = layer.strokeColor;
+      ctxRef.stroke();
+    }
+    return;
+  }
+  const primary = buildFineRoughPoints(points, layer, 0.45);
+  drawSmoothPath(ctxRef, primary, layer.closed);
+  ctxRef.lineWidth = layer.strokeWidth;
+  ctxRef.strokeStyle = layer.strokeColor;
+  ctxRef.stroke();
+  renderSegmentedRoughStroke(ctxRef, primary, layer, 1.2, 0.24, 0.92, 0.58);
+  renderSegmentedRoughStroke(ctxRef, primary, layer, 3.6, 0.16, 0.68, 0.36);
+  if (rough > 34) renderSegmentedRoughStroke(ctxRef, primary, layer, 7.4, 0.11, 0.48, 0.24);
 }
 
 function renderBlobShape(ctxRef, layer, points) {
@@ -1699,6 +1719,7 @@ function createImageLayer(img, name, src) {
     w: w,
     h: h,
     rot: 0,
+    locked: false,
     clip: null,
     name: name || 'Image',
     effects: cloneEffects(DEFAULT_IMAGE_EFFECTS),
@@ -1822,6 +1843,7 @@ function duplicateLayer() {
       w: active.w,
       h: active.h,
       rot: active.rot,
+      locked: false,
       clip: cloneClip(active.clip),
       name: active.name + ' Copy',
       effects: cloneEffects(active.effects),
@@ -1833,6 +1855,7 @@ function duplicateLayer() {
   } else if (active.type === 'text') {
     const copyText = JSON.parse(JSON.stringify(active));
     copyText.id = state.nextId++;
+    copyText.locked = false;
     copyText.x += 18;
     copyText.y += 18;
     copyText.name = active.name + ' Copy';
@@ -1841,6 +1864,7 @@ function duplicateLayer() {
   } else if (active.type === 'shape') {
     const copyShape = JSON.parse(JSON.stringify(active));
     copyShape.id = state.nextId++;
+    copyShape.locked = false;
     copyShape.x += 18;
     copyShape.y += 18;
     copyShape.name = active.name + ' Copy';
@@ -1849,6 +1873,7 @@ function duplicateLayer() {
   } else if (active.type === 'path') {
     const copyPath = JSON.parse(JSON.stringify(active));
     copyPath.id = state.nextId++;
+    copyPath.locked = false;
     copyPath.x += 18;
     copyPath.y += 18;
     copyPath.name = active.name + ' Copy';
@@ -2616,7 +2641,7 @@ function updateLayerPanel() {
     const layer = state.layers[i];
     const item = document.createElement('div');
     item.className = 'layer-item' + (layer.id === state.activeId ? ' active' : '');
-    item.draggable = true;
+    item.draggable = !layer.locked;
     item.dataset.layerId = layer.id;
     let thumb = '';
     if (layer.type === 'image') {
@@ -2632,7 +2657,7 @@ function updateLayerPanel() {
     } else {
       thumb = '<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#fffaf2;background:#3f3f3f">P</div>';
     }
-    item.innerHTML = thumb + '<span class="layer-name">' + layer.name + '</span><span class="layer-del" data-del="' + layer.id + '">x</span>';
+    item.innerHTML = thumb + '<span class="layer-name">' + layer.name + (layer.locked ? ' [Locked]' : '') + '</span><span class="layer-del" data-del="' + layer.id + '">x</span>';
     item.addEventListener('click', function (ev) {
       if (ev.target.dataset.del) {
         deleteLayer(Number(ev.target.dataset.del));
@@ -2644,6 +2669,7 @@ function updateLayerPanel() {
       render();
     });
     item.addEventListener('dragstart', function () {
+      if (layer.locked) return;
       draggedLayerId = layer.id;
       item.classList.add('dragging');
     });
@@ -2688,7 +2714,8 @@ function syncInspector() {
   document.getElementById('layer-name').value = active.name || '';
   document.getElementById('layer-rot').value = Math.round(active.rot * 180 / Math.PI);
   syncRangeValue('rot-val', Math.round(active.rot * 180 / Math.PI) + '°');
-  document.getElementById('layer-rot').disabled = isLockedCreditLayer(active);
+  document.getElementById('layer-rot').disabled = isLockedCreditLayer(active) || isLayerLocked(active);
+  document.getElementById('btn-layer-lock').textContent = isLayerLocked(active) ? 'Unlock' : 'Lock';
 
   if (active.type === 'image') {
     document.getElementById('img-crop-mode').value = state.cropMode || 'smooth';
@@ -2762,7 +2789,7 @@ canvas.addEventListener('mousedown', function (e) {
   if (state.tool === 'select') {
     const active = getActiveLayer();
     if (active) {
-      if (active.type === 'path') {
+      if (!isLayerLocked(active) && active.type === 'path') {
         const pathPointIndex = getNearestPathPointIndex(active, p.x, p.y, 10);
         if (pathPointIndex >= 0) {
           selectedPathPoint = { layerId: active.id, pointIndex: pathPointIndex };
@@ -2778,7 +2805,7 @@ canvas.addEventListener('mousedown', function (e) {
           return;
         }
       }
-      const handle = isLockedCreditLayer(active) ? null : hitHandle(active, p.x, p.y);
+      const handle = (isLockedCreditLayer(active) || isLayerLocked(active)) ? null : hitHandle(active, p.x, p.y);
       if (handle) {
         state.resize = {
           layerId: active.id,
@@ -2798,7 +2825,7 @@ canvas.addEventListener('mousedown', function (e) {
     if (hit) {
       state.activeId = hit.id;
       selectedPathPoint = null;
-      if (!isLockedCreditLayer(hit)) {
+      if (!isLockedCreditLayer(hit) && !isLayerLocked(hit)) {
         state.drag = { layerId: hit.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y };
       }
       updateLayerPanel();
@@ -2941,7 +2968,7 @@ canvas.addEventListener('dblclick', function (e) {
 
 canvas.addEventListener('wheel', function (e) {
   const active = getActiveLayer();
-  if (!active || state.tool !== 'select') return;
+  if (!active || state.tool !== 'select' || isLayerLocked(active)) return;
   e.preventDefault();
   const factor = e.deltaY < 0 ? 1.06 : 0.94;
   scaleLayerUniform(active, factor);
@@ -2967,6 +2994,21 @@ document.getElementById('btn-layer-down').addEventListener('click', function () 
 document.getElementById('btn-layer-del').addEventListener('click', function () { if (state.activeId) deleteLayer(state.activeId); });
 document.getElementById('btn-clear-crop').addEventListener('click', clearClip);
 document.getElementById('btn-duplicate').addEventListener('click', duplicateLayer);
+document.getElementById('btn-layer-lock').addEventListener('click', function () {
+  const active = getActiveLayer();
+  if (!active || isLockedCreditLayer(active)) return;
+  active.locked = !active.locked;
+  if (active.locked) {
+    state.drag = null;
+    state.resize = null;
+    activePathPoint = null;
+    selectedPathPoint = null;
+  }
+  updateLayerPanel();
+  syncInspector();
+  render();
+  pushHistorySnapshot();
+});
 document.getElementById('btn-undo').addEventListener('click', function () { undoHistory(); });
 document.getElementById('btn-redo').addEventListener('click', function () { redoHistory(); });
 
@@ -3002,7 +3044,7 @@ document.getElementById('canvas-size-select').addEventListener('change', functio
 
 document.getElementById('layer-name').addEventListener('input', function () {
   const active = getActiveLayer();
-  if (!active) return;
+  if (!active || isLayerLocked(active)) return;
   active.name = this.value || (active.type === 'image' ? 'Image' : active.type === 'path' ? 'Path' : active.type === 'shape' ? 'Shape' : 'Text');
   updateLayerPanel();
   scheduleHistoryCommit();
@@ -3010,7 +3052,7 @@ document.getElementById('layer-name').addEventListener('input', function () {
 
 document.getElementById('layer-rot').addEventListener('input', function () {
   const active = getActiveLayer();
-  if (!active || isLockedCreditLayer(active)) return;
+  if (!active || isLockedCreditLayer(active) || isLayerLocked(active)) return;
   active.rot = Number(this.value) * Math.PI / 180;
   syncRangeValue('rot-val', this.value + '°');
   render();
