@@ -476,6 +476,10 @@ input[type="range"]{
 
       <div class="section hidden" id="image-section">
         <h3>Image Print</h3>
+        <select class="field font-select" id="img-crop-mode">
+          <option value="smooth">Free Crop: Smooth</option>
+          <option value="polygon">Free Crop: Polygon</option>
+        </select>
         <div class="row"><label>Grain</label><span class="value" id="grain-val">0</span></div>
         <input type="range" id="img-grain" min="0" max="100" value="0">
         <div class="row"><label>Fade</label><span class="value" id="fade-val">0</span></div>
@@ -527,6 +531,7 @@ input[type="range"]{
       <div class="section hidden" id="sticker-section">
         <h3>Sticker</h3>
         <div class="stack">
+          <input class="field" id="sticker-bg-color" type="color" value="#ffffff">
           <select class="field font-select" id="sticker-edge-style">
             <option value="note">Note Edge</option>
             <option value="stamp">Stamp Edge</option>
@@ -624,6 +629,7 @@ const state = {
   layers: [],
   activeId: null,
   tool: 'select',
+  cropMode: 'smooth',
   canvasW: 800,
   canvasH: 800,
   scale: 1,
@@ -1113,12 +1119,7 @@ function setCanvasSize(w, h) {
   state.canvasW = w;
   state.canvasH = h;
   state.layers.forEach(function (layer) {
-    if (layer.type === 'text' && layer.role === 'credit') {
-      layer.x = 0;
-      layer.w = state.canvasW;
-      layer.h = layer.h || 34;
-      layer.y = state.canvasH - layer.h;
-    }
+    if (layer.type === 'text' && layer.role === 'credit') layoutCreditLayer(layer);
   });
   fitCanvas();
   pushHistorySnapshot();
@@ -1151,6 +1152,60 @@ function updateTextMetrics(layer) {
   }
   layer.w = Math.max(90, Math.round(maxWidth + 18));
   layer.h = Math.max(36, Math.round(lines.length * layer.fontSize * layer.lineHeight + 12));
+}
+
+function layoutCreditLayer(layer) {
+  if (!layer || layer.type !== 'text' || layer.role !== 'credit') return;
+  const blockH = Math.max(34, Math.round(layer.fontSize * layer.lineHeight + 18));
+  layer.x = 0;
+  layer.y = state.canvasH - blockH;
+  layer.w = state.canvasW;
+  layer.h = blockH;
+  layer.bgColor = layer.bgColor || '#ffffff';
+  layer.paddingX = 18;
+  layer.paddingY = Math.max(6, Math.round((blockH - layer.fontSize * layer.lineHeight) * 0.5));
+  layer.rot = 0;
+}
+
+function isLockedCreditLayer(layer) {
+  return !!(layer && layer.type === 'text' && layer.role === 'credit');
+}
+
+function snapLayerPosition(layer, x, y) {
+  const threshold = 10;
+  const result = { x: x, y: y };
+  const centerX = x + layer.w * 0.5;
+  const centerY = y + layer.h * 0.5;
+  if (Math.abs(centerX - state.canvasW * 0.5) <= threshold) result.x = state.canvasW * 0.5 - layer.w * 0.5;
+  if (Math.abs(centerY - state.canvasH * 0.5) <= threshold) result.y = state.canvasH * 0.5 - layer.h * 0.5;
+  if (Math.abs(x) <= threshold) result.x = 0;
+  if (Math.abs(y) <= threshold) result.y = 0;
+  if (Math.abs((x + layer.w) - state.canvasW) <= threshold) result.x = state.canvasW - layer.w;
+  if (Math.abs((y + layer.h) - state.canvasH) <= threshold) result.y = state.canvasH - layer.h;
+  return result;
+}
+
+function scaleLayerUniform(layer, factor) {
+  if (!layer || factor <= 0 || isLockedCreditLayer(layer)) return;
+  const prevW = layer.w;
+  const prevH = layer.h;
+  const cx = layer.x + layer.w * 0.5;
+  const cy = layer.y + layer.h * 0.5;
+  layer.w = Math.max(18, layer.w * factor);
+  layer.h = Math.max(18, layer.h * factor);
+  layer.x = cx - layer.w * 0.5;
+  layer.y = cy - layer.h * 0.5;
+  scaleLayerClip(layer, layer.w / prevW, layer.h / prevH);
+  scalePathPoints(layer, layer.w / prevW, layer.h / prevH);
+  if (layer.type === 'text') {
+    layer.fontSize = Math.max(8, layer.fontSize * factor);
+    layer.paddingX = Math.max(0, (layer.paddingX || 0) * factor);
+    layer.paddingY = Math.max(0, (layer.paddingY || 0) * factor);
+    if (layer.role !== 'sticker' && layer.role !== 'credit') updateTextMetrics(layer);
+  }
+  if (layer.type === 'path' && layer.pathKind === 'textpath') {
+    layer.fontSize = Math.max(8, layer.fontSize * factor);
+  }
 }
 
 function getLineRenderWidth(line, layer) {
@@ -1373,33 +1428,33 @@ function renderRoughBrush(ctxRef, points, layer) {
   }
   const rough = Number(layer.rough || 0);
   if (layer.roughStyle !== 'rough' || rough <= 0) return;
-  const overlays = rough > 55 ? 3 : 2;
+  const overlays = rough > 65 ? 4 : 3;
   for (let k = 0; k < overlays; k++) {
-    const jitter = 0.24 + rough / 115;
+    const jitter = 0.32 + rough / 82;
     const ghost = points.map(function (p, idx) {
       const amp = (Math.sin(idx * 1.7 + k * 2.1) + Math.cos(idx * 0.9 + k * 1.3)) * layer.strokeWidth * jitter;
       return {
-        x: p.x + Math.sin(idx * 0.7 + k) * amp * 0.26,
-        y: p.y + Math.cos(idx * 0.8 + k * 1.6) * amp * 0.24
+        x: p.x + Math.sin(idx * 0.7 + k) * amp * 0.36,
+        y: p.y + Math.cos(idx * 0.8 + k * 1.6) * amp * 0.34
       };
     });
     ctxRef.save();
-    ctxRef.globalAlpha = 0.28;
+    ctxRef.globalAlpha = 0.34;
     drawSmoothPath(ctxRef, ghost, layer.closed);
-    ctxRef.lineWidth = Math.max(1, layer.strokeWidth * (0.62 + k * 0.12));
+    ctxRef.lineWidth = Math.max(1, layer.strokeWidth * (0.56 + k * 0.13));
     ctxRef.strokeStyle = layer.strokeColor;
     ctxRef.stroke();
     ctxRef.restore();
   }
   if (rough > 24 && layer.strokeWidth > 0) {
     const jitterLine = points.map(function (p, idx) {
-      const wobble = (Math.sin(idx * 0.55) + Math.cos(idx * 0.42 + 1.3)) * (rough / 100) * layer.strokeWidth * 0.2;
+      const wobble = (Math.sin(idx * 0.55) + Math.cos(idx * 0.42 + 1.3)) * (rough / 100) * layer.strokeWidth * 0.28;
       return { x: p.x + wobble, y: p.y - wobble * 0.5 };
     });
     ctxRef.save();
-    ctxRef.globalAlpha = 0.22;
+    ctxRef.globalAlpha = 0.28;
     drawSmoothPath(ctxRef, jitterLine, layer.closed);
-    ctxRef.lineWidth = Math.max(0.6, layer.strokeWidth * 0.52);
+    ctxRef.lineWidth = Math.max(0.6, layer.strokeWidth * 0.48);
     ctxRef.strokeStyle = layer.strokeColor;
     ctxRef.stroke();
     ctxRef.restore();
@@ -1640,6 +1695,7 @@ function addCreditLayer() {
   layer.paddingY = 8;
   layer.w = state.canvasW;
   layer.h = blockH;
+  layoutCreditLayer(layer);
   state.layers.push(layer);
   state.activeId = layer.id;
   updateLayerPanel();
@@ -2015,20 +2071,25 @@ function buildStickerPath(layer) {
     return path;
   }
   if (style === 'stamp') {
-    const scallop = 10;
-    for (let px = x + scallop; px < x + w - scallop / 2; px += scallop * 0.95) {
-      path.moveTo(px, y);
-      path.arc(px, y, scallop * 0.5, Math.PI, 0, false);
-      path.moveTo(px, y + h);
-      path.arc(px, y + h, scallop * 0.5, Math.PI, 0, true);
+    const tooth = 11;
+    path.moveTo(x + tooth, y);
+    for (let px = x + tooth; px < x + w - tooth; px += tooth) {
+      const nx = Math.min(x + w - tooth, px + tooth);
+      path.quadraticCurveTo(px + tooth * 0.5, y - tooth * 0.85, nx, y);
     }
-    for (let py = y + scallop; py < y + h - scallop / 2; py += scallop * 0.95) {
-      path.moveTo(x, py);
-      path.arc(x, py, scallop * 0.5, -Math.PI / 2, Math.PI / 2, false);
-      path.moveTo(x + w, py);
-      path.arc(x + w, py, scallop * 0.5, Math.PI / 2, -Math.PI / 2, false);
+    for (let py = y + tooth; py < y + h - tooth; py += tooth) {
+      const ny = Math.min(y + h - tooth, py + tooth);
+      path.quadraticCurveTo(x + w + tooth * 0.85, py + tooth * 0.5, x + w, ny);
     }
-    path.rect(x + scallop * 0.5, y + scallop * 0.5, w - scallop, h - scallop);
+    for (let px = x + w - tooth; px > x + tooth; px -= tooth) {
+      const nx = Math.max(x + tooth, px - tooth);
+      path.quadraticCurveTo(px - tooth * 0.5, y + h + tooth * 0.85, nx, y + h);
+    }
+    for (let py = y + h - tooth; py > y + tooth; py -= tooth) {
+      const ny = Math.max(y + tooth, py - tooth);
+      path.quadraticCurveTo(x - tooth * 0.85, py - tooth * 0.5, x, ny);
+    }
+    path.closePath();
     return path;
   }
   const tooth = 16;
@@ -2061,7 +2122,7 @@ function renderStickerBackground(layer) {
   ctx.fillStyle = layer.bgColor || '#ffffff';
   ctx.fill(stickerPath);
   ctx.clip(stickerPath);
-  const tex = getPaperTexture('#fbfaf5');
+  const tex = getPaperTexture(layer.bgColor || '#fbfaf5');
   ctx.globalAlpha = 0.32;
   ctx.drawImage(tex, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
   ctx.restore();
@@ -2108,7 +2169,7 @@ function renderShapeLayer(layer) {
         target.beginPath();
         target.moveTo(gx, y);
         target.lineTo(gx, y + h);
-      }, 0.75);
+      }, 1);
     }
     for (let r = 0; r <= rows; r++) {
       const gy = y + (h / rows) * r;
@@ -2116,7 +2177,7 @@ function renderShapeLayer(layer) {
         target.beginPath();
         target.moveTo(x, gy);
         target.lineTo(x + w, gy);
-      }, 0.75);
+      }, 1);
     }
     renderShapeStroke(layer, function (target) {
       target.beginPath();
@@ -2133,13 +2194,14 @@ function renderShapeStroke(layer, drawFn, widthScale) {
   ctx.strokeStyle = layer.strokeColor;
   ctx.stroke();
   if (layer.roughStyle === 'rough' && layer.rough > 0) {
-    const passes = layer.rough > 55 ? 3 : 2;
+    const passes = layer.rough > 65 ? 4 : 3;
     for (let i = 0; i < passes; i++) {
       ctx.save();
-      ctx.globalAlpha = 0.18;
-      ctx.translate((Math.random() - 0.5) * layer.rough * 0.08, (Math.random() - 0.5) * layer.rough * 0.08);
+      ctx.globalAlpha = 0.26;
+      ctx.translate((Math.random() - 0.5) * layer.rough * 0.14, (Math.random() - 0.5) * layer.rough * 0.14);
+      ctx.rotate((Math.random() - 0.5) * layer.rough * 0.0016);
       drawFn(ctx);
-      ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.82 + i * 0.08));
+      ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.72 + i * 0.12));
       ctx.strokeStyle = layer.strokeColor;
       ctx.stroke();
       ctx.restore();
@@ -2255,6 +2317,9 @@ function renderCropPreview() {
     ctx.beginPath();
     ctx.moveTo(state.cropPreview.points[0].x, state.cropPreview.points[0].y);
     for (let i = 1; i < state.cropPreview.points.length; i++) ctx.lineTo(state.cropPreview.points[i].x, state.cropPreview.points[i].y);
+    if (state.cropPreview.mode === 'polygon' && Number.isFinite(state.cropPreview.currentX) && Number.isFinite(state.cropPreview.currentY)) {
+      ctx.lineTo(state.cropPreview.currentX, state.cropPreview.currentY);
+    }
     ctx.stroke();
   }
   if (state.cropPreview.kind === 'rect') {
@@ -2483,6 +2548,9 @@ function beginCropTool(tool) {
     return;
   }
   setTool(tool);
+  if (tool === 'lasso') {
+    setStatus(state.cropMode === 'polygon' ? 'Polygon crop: click to place points, double-click or Enter to finish' : 'Smooth free crop ready');
+  }
 }
 
 function loadImageFile(file) {
@@ -2576,8 +2644,10 @@ function syncInspector() {
   document.getElementById('layer-name').value = active.name || '';
   document.getElementById('layer-rot').value = Math.round(active.rot * 180 / Math.PI);
   syncRangeValue('rot-val', Math.round(active.rot * 180 / Math.PI) + '°');
+  document.getElementById('layer-rot').disabled = isLockedCreditLayer(active);
 
   if (active.type === 'image') {
+    document.getElementById('img-crop-mode').value = state.cropMode || 'smooth';
     const fx = cloneEffects(active.effects);
     document.getElementById('img-grain').value = fx.grain;
     document.getElementById('img-fade').value = fx.fade;
@@ -2604,6 +2674,7 @@ function syncInspector() {
       node.classList.toggle('active', node.dataset.align === (active.align || 'left'));
     });
     if (active.type === 'text' && active.role === 'sticker') {
+      document.getElementById('sticker-bg-color').value = active.bgColor || '#ffffff';
       document.getElementById('sticker-edge-style').value = active.stickerEdge || 'note';
       document.getElementById('sticker-shadow-style').value = active.stickerShadow || 'soft';
     }
@@ -2663,7 +2734,7 @@ canvas.addEventListener('mousedown', function (e) {
           return;
         }
       }
-      const handle = hitHandle(active, p.x, p.y);
+      const handle = isLockedCreditLayer(active) ? null : hitHandle(active, p.x, p.y);
       if (handle) {
         state.resize = {
           layerId: active.id,
@@ -2683,7 +2754,9 @@ canvas.addEventListener('mousedown', function (e) {
     if (hit) {
       state.activeId = hit.id;
       selectedPathPoint = null;
-      state.drag = { layerId: hit.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y };
+      if (!isLockedCreditLayer(hit)) {
+        state.drag = { layerId: hit.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y };
+      }
       updateLayerPanel();
       syncInspector();
       render();
@@ -2697,7 +2770,19 @@ canvas.addEventListener('mousedown', function (e) {
   } else if (state.tool === 'lasso') {
     const activeImage = getActiveLayer();
     if (!activeImage || activeImage.type !== 'image') return;
-    state.cropPreview = { kind: 'lasso', layerId: activeImage.id, points: [{ x: p.x, y: p.y }] };
+    if (state.cropMode === 'polygon') {
+      if (!state.cropPreview || state.cropPreview.kind !== 'lasso' || state.cropPreview.mode !== 'polygon' || state.cropPreview.layerId !== activeImage.id) {
+        state.cropPreview = { kind: 'lasso', mode: 'polygon', layerId: activeImage.id, points: [{ x: p.x, y: p.y }], currentX: p.x, currentY: p.y };
+      } else {
+        state.cropPreview.points.push({ x: p.x, y: p.y });
+        state.cropPreview.currentX = p.x;
+        state.cropPreview.currentY = p.y;
+      }
+      pointerDown = false;
+      render();
+    } else {
+      state.cropPreview = { kind: 'lasso', mode: 'smooth', layerId: activeImage.id, points: [{ x: p.x, y: p.y }] };
+    }
   } else if (state.tool === 'rectcrop') {
     const activeRect = getActiveLayer();
     if (!activeRect || activeRect.type !== 'image') return;
@@ -2713,6 +2798,11 @@ canvas.addEventListener('mousedown', function (e) {
 canvas.addEventListener('mousemove', function (e) {
   const p = canvasPoint(e);
   document.getElementById('status-pos').textContent = Math.round(p.x) + ', ' + Math.round(p.y);
+  if (state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon') {
+    state.cropPreview.currentX = p.x;
+    state.cropPreview.currentY = p.y;
+    render();
+  }
   if (!pointerDown) return;
 
   if (state.tool === 'select') {
@@ -2727,8 +2817,9 @@ canvas.addEventListener('mousemove', function (e) {
     } else if (state.drag) {
       const layer = state.layers.find(function (item) { return item.id === state.drag.layerId; });
       if (layer) {
-        layer.x = state.drag.origX + (p.x - state.drag.startX);
-        layer.y = state.drag.origY + (p.y - state.drag.startY);
+        const snapped = snapLayerPosition(layer, state.drag.origX + (p.x - state.drag.startX), state.drag.origY + (p.y - state.drag.startY));
+        layer.x = snapped.x;
+        layer.y = snapped.y;
         render();
       }
     } else if (state.resize) {
@@ -2751,11 +2842,12 @@ canvas.addEventListener('mousemove', function (e) {
         if (state.resize.handle === 'tl' || state.resize.handle === 'bl') layer.x = state.resize.origX + state.resize.origW - layer.w;
         if (state.resize.handle === 'tl' || state.resize.handle === 'tr') layer.y = state.resize.origY + state.resize.origH - layer.h;
       }
-      if (layer.type === 'text') updateTextMetrics(layer);
+      if (layer.type === 'text' && layer.role !== 'sticker' && layer.role !== 'credit') updateTextMetrics(layer);
+      if (layer.type === 'text' && layer.role === 'credit') layoutCreditLayer(layer);
       render();
     }
   } else if (state.cropPreview) {
-    if (state.cropPreview.kind === 'lasso') state.cropPreview.points.push({ x: p.x, y: p.y });
+    if (state.cropPreview.kind === 'lasso' && state.cropPreview.mode !== 'polygon') state.cropPreview.points.push({ x: p.x, y: p.y });
     if (state.cropPreview.kind === 'rect') {
       state.cropPreview.currentX = p.x;
       state.cropPreview.currentY = p.y;
@@ -2769,7 +2861,7 @@ canvas.addEventListener('mousemove', function (e) {
 
 canvas.addEventListener('mouseup', function () {
   pointerDown = false;
-  if (state.cropPreview) applyCurrentCrop();
+  if (state.cropPreview && !(state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon')) applyCurrentCrop();
   if (drawPreview) {
     addPathLayer(drawPreview.kind, drawPreview.points);
     drawPreview = null;
@@ -2793,11 +2885,25 @@ canvas.addEventListener('mouseleave', function () {
 });
 
 canvas.addEventListener('dblclick', function (e) {
+  if (state.tool === 'lasso' && state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon') {
+    if (state.cropPreview.points.length > 2) applyCurrentCrop();
+    return;
+  }
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
   const p = canvasPoint(e);
   insertPathPoint(active, p.x, p.y);
 });
+
+canvas.addEventListener('wheel', function (e) {
+  const active = getActiveLayer();
+  if (!active || state.tool !== 'select') return;
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.06 : 0.94;
+  scaleLayerUniform(active, factor);
+  render();
+  scheduleHistoryCommit();
+}, { passive: false });
 
 document.getElementById('btn-select').addEventListener('click', function () { setTool('select'); });
 document.getElementById('btn-lasso').addEventListener('click', function () { beginCropTool('lasso'); });
@@ -2860,12 +2966,19 @@ document.getElementById('layer-name').addEventListener('input', function () {
 
 document.getElementById('layer-rot').addEventListener('input', function () {
   const active = getActiveLayer();
-  if (!active) return;
+  if (!active || isLockedCreditLayer(active)) return;
   active.rot = Number(this.value) * Math.PI / 180;
   syncRangeValue('rot-val', this.value + '°');
   render();
 });
 document.getElementById('layer-rot').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('img-crop-mode').addEventListener('change', function () {
+  state.cropMode = this.value;
+  if (state.tool === 'lasso') {
+    setStatus(this.value === 'polygon' ? 'Polygon crop: click to place points, double-click or Enter to finish' : 'Smooth free crop ready');
+  }
+});
 
 ['img-grain', 'img-fade', 'img-tint', 'img-blur'].forEach(function (id) {
   const map = {
@@ -2907,6 +3020,7 @@ document.getElementById('text-content').addEventListener('input', function () {
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.text = this.value || 'Text';
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
+  if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   render();
   scheduleHistoryCommit();
 });
@@ -2916,6 +3030,7 @@ document.getElementById('text-font').addEventListener('change', function () {
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.fontFamily = this.value;
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
+  if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   render();
   pushHistorySnapshot();
 });
@@ -2925,6 +3040,7 @@ document.getElementById('text-size').addEventListener('input', function () {
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.fontSize = Number(this.value);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
+  if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   syncRangeValue('text-size-val', this.value);
   render();
 });
@@ -2935,6 +3051,7 @@ document.getElementById('text-leading').addEventListener('input', function () {
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.lineHeight = Number(this.value);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
+  if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   syncRangeValue('text-leading-val', Number(this.value).toFixed(2));
   render();
 });
@@ -2978,6 +3095,14 @@ document.getElementById('sticker-edge-style').addEventListener('change', functio
   render();
   pushHistorySnapshot();
 });
+
+document.getElementById('sticker-bg-color').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'text' || active.role !== 'sticker') return;
+  active.bgColor = this.value;
+  render();
+});
+document.getElementById('sticker-bg-color').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('sticker-shadow-style').addEventListener('change', function () {
   const active = getActiveLayer();
@@ -3228,6 +3353,11 @@ document.addEventListener('keydown', function (e) {
       return;
     }
     deleteLayer(state.activeId);
+  }
+  if (e.key === 'Enter' && state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon') {
+    e.preventDefault();
+    if (state.cropPreview.points.length > 2) applyCurrentCrop();
+    return;
   }
   if (e.key === 'Escape') {
     state.cropPreview = null;
