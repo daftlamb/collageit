@@ -511,7 +511,7 @@ input[type="range"]{
             <option value="textpath">Path Text</option>
           </select>
           <div class="row"><label>Stroke</label><span class="value" id="path-stroke-val">6</span></div>
-          <input type="range" id="path-stroke" min="1" max="48" value="6">
+          <input type="range" id="path-stroke" min="0" max="48" value="6">
           <div class="row"><label>Smooth</label><span class="value" id="path-smooth-val">35</span></div>
           <input type="range" id="path-smooth" min="0" max="100" value="35">
           <div class="row"><label>Loose</label><span class="value" id="path-loose-val">14</span></div>
@@ -1067,11 +1067,169 @@ function drawArrowHead(ctxRef, head, tail, style, color, size) {
   ctxRef.restore();
 }
 
+function snoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const h = function (a, b) { return ((Math.sin(a * 127.1 + b * 311.7) * 43758.5453) % 1 + 1) % 1; };
+  const lerp = function (a, b, t) { return a + t * (b - a); };
+  const fade = function (t) { return t * t * (3 - 2 * t); };
+  return lerp(
+    lerp(h(xi, yi), h(xi + 1, yi), fade(xf)),
+    lerp(h(xi, yi + 1), h(xi + 1, yi + 1), fade(xf)),
+    fade(yf)
+  ) * 2 - 1;
+}
+
+function smoothPathCtx(ctxRef, pts) {
+  if (!pts || pts.length < 2) return;
+  ctxRef.moveTo(pts[0].x, pts[0].y);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2;
+    const my = (pts[i].y + pts[i + 1].y) / 2;
+    if (i === 0) ctxRef.lineTo(mx, my);
+    else ctxRef.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+  }
+  ctxRef.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+}
+
+function resampleMetaballPoints(points, spacing) {
+  if (!points || points.length < 2) return clonePathPoints(points || []);
+  const out = [points[0]];
+  let carry = 0;
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i].x - points[i - 1].x;
+    const dy = points[i].y - points[i - 1].y;
+    const seg = Math.hypot(dx, dy);
+    let d = carry;
+    while (d < seg) {
+      const t = d / seg;
+      out.push({ x: points[i - 1].x + dx * t, y: points[i - 1].y + dy * t });
+      d += spacing;
+    }
+    carry = d - seg;
+  }
+  return out;
+}
+
+function buildMetaballField(points, radius, cols, rows, step) {
+  const cutoff2 = 4 * radius * radius;
+  const grid = new Float32Array(cols * rows);
+  for (let i = 0; i < points.length; i++) {
+    const px = points[i].x;
+    const py = points[i].y;
+    const c0 = Math.max(0, Math.floor((px - 2 * radius) / step));
+    const c1 = Math.min(cols - 1, Math.ceil((px + 2 * radius) / step));
+    const r0 = Math.max(0, Math.floor((py - 2 * radius) / step));
+    const r1 = Math.min(rows - 1, Math.ceil((py + 2 * radius) / step));
+    for (let row = r0; row <= r1; row++) {
+      for (let col = c0; col <= c1; col++) {
+        const dx = col * step - px;
+        const dy = row * step - py;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < cutoff2) grid[row * cols + col] += Math.pow(1 - d2 / cutoff2, 2);
+      }
+    }
+  }
+  return grid;
+}
+
+function sampleWarpedField(grid, cols, rows, col, row, noiseDistort, noiseFreq) {
+  if (noiseDistort <= 0) {
+    const c = Math.max(0, Math.min(cols - 1, col));
+    const r = Math.max(0, Math.min(rows - 1, row));
+    return grid[r * cols + c];
+  }
+  const wc = col + snoise(col * noiseFreq, row * noiseFreq) * noiseDistort;
+  const wr = row + snoise(col * noiseFreq + 31.41, row * noiseFreq + 27.18) * noiseDistort;
+  const c0 = Math.floor(wc), r0 = Math.floor(wr), c1 = Math.min(cols - 1, c0 + 1), r1 = Math.min(rows - 1, r0 + 1);
+  const fc = wc - c0, fr = wr - r0;
+  const cc0 = Math.max(0, Math.min(cols - 1, c0)), cc1 = Math.max(0, Math.min(cols - 1, c1));
+  const rr0 = Math.max(0, Math.min(rows - 1, r0)), rr1 = Math.max(0, Math.min(rows - 1, r1));
+  return (grid[rr0 * cols + cc0] * (1 - fc) + grid[rr0 * cols + cc1] * fc) * (1 - fr)
+       + (grid[rr1 * cols + cc0] * (1 - fc) + grid[rr1 * cols + cc1] * fc) * fr;
+}
+
+function marchMetaball(grid, cols, rows, step, thresh, noiseDistort, noiseFreq) {
+  const segs = [];
+  const sv = function (c, r) { return sampleWarpedField(grid, cols, rows, c, r, noiseDistort, noiseFreq); };
+  const interp = function (ax, ay, bx, by, va, vb) {
+    const t = (thresh - va) / (vb - va);
+    return { x: ax + (bx - ax) * t, y: ay + (by - ay) * t };
+  };
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const x = c * step, y = r * step, x1 = x + step, y1 = y + step;
+      const v00 = sv(c, r), v10 = sv(c + 1, r), v01 = sv(c, r + 1), v11 = sv(c + 1, r + 1);
+      const idx = (v00 > thresh ? 8 : 0) | (v10 > thresh ? 4 : 0) | (v11 > thresh ? 2 : 0) | (v01 > thresh ? 1 : 0);
+      if (idx === 0 || idx === 15) continue;
+      const T = interp(x, y, x1, y, v00, v10), R = interp(x1, y, x1, y1, v10, v11);
+      const B = interp(x, y1, x1, y1, v01, v11), L = interp(x, y, x, y1, v00, v01);
+      if (idx === 5 || idx === 10) {
+        const center = (v00 + v10 + v01 + v11) * 0.25;
+        if (idx === 5) {
+          if (center > thresh) segs.push([T, R], [B, L]);
+          else segs.push([T, L], [R, B]);
+        } else {
+          if (center > thresh) segs.push([T, L], [R, B]);
+          else segs.push([T, R], [B, L]);
+        }
+        continue;
+      }
+      const table = { 1:[[B,L]],2:[[R,B]],3:[[R,L]],4:[[T,R]],6:[[T,B]],7:[[T,L]],8:[[L,T]],9:[[T,B]],11:[[R,T]],12:[[R,L]],13:[[B,R]],14:[[L,B]] };
+      (table[idx] || []).forEach(function (pair) { segs.push(pair); });
+    }
+  }
+  return segs;
+}
+
+function chainMetaballSegments(segs) {
+  if (!segs.length) return [];
+  const EPS = 1.0;
+  const adj = new Map();
+  function key(pt) { return Math.round(pt.x / EPS) + ',' + Math.round(pt.y / EPS); }
+  function addAdj(k, i) {
+    if (!adj.has(k)) adj.set(k, []);
+    adj.get(k).push(i);
+  }
+  for (let i = 0; i < segs.length; i++) {
+    addAdj(key(segs[i][0]), i);
+    addAdj(key(segs[i][1]), i);
+  }
+  const used = new Uint8Array(segs.length);
+  const chains = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const pts = [segs[i][0], segs[i][1]];
+    for (let dir = 0; dir < 2; dir++) {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const tip = dir === 0 ? pts[pts.length - 1] : pts[0];
+        const connected = adj.get(key(tip)) || [];
+        for (let j = 0; j < connected.length; j++) {
+          const segIndex = connected[j];
+          if (used[segIndex]) continue;
+          used[segIndex] = 1;
+          changed = true;
+          const a = segs[segIndex][0], b = segs[segIndex][1];
+          if (dir === 0) pts.push(key(tip) === key(a) ? b : a);
+          else pts.unshift(key(tip) === key(a) ? b : a);
+          break;
+        }
+      }
+    }
+    if (pts.length > 2) chains.push(pts);
+  }
+  return chains;
+}
+
 function renderRoughBrush(ctxRef, points, layer) {
   drawSmoothPath(ctxRef, points, layer.closed);
-  ctxRef.lineWidth = layer.strokeWidth;
-  ctxRef.strokeStyle = layer.strokeColor;
-  ctxRef.stroke();
+  if (layer.strokeWidth > 0) {
+    ctxRef.lineWidth = layer.strokeWidth;
+    ctxRef.strokeStyle = layer.strokeColor;
+    ctxRef.stroke();
+  }
   const rough = Number(layer.rough || 0);
   if (rough <= 0) return;
   const overlays = rough > 55 ? 3 : 2;
@@ -1100,40 +1258,49 @@ function renderBlobShape(ctxRef, layer, points) {
   off.height = Math.max(8, Math.ceil(layer.h));
   const octx = off.getContext('2d');
   const canvasPoints = points.map(function (p) { return { x: p.x + layer.w / 2, y: p.y + layer.h / 2 }; });
-  const looseBlur = Number(layer.loose || 0) * 0.12;
-  const bodyWidth = Math.max(10, layer.strokeWidth);
-  octx.lineJoin = 'round';
-  octx.lineCap = 'round';
-  octx.filter = looseBlur > 0 ? 'blur(' + looseBlur.toFixed(2) + 'px)' : 'none';
-  drawSmoothPath(octx, canvasPoints, false);
-  octx.lineWidth = bodyWidth;
-  octx.strokeStyle = '#000';
-  octx.stroke();
-  if (layer.closed) {
-    drawSmoothPath(octx, canvasPoints, true);
-    octx.fillStyle = '#000';
-    octx.fill();
-  }
-  octx.filter = 'none';
-  const imageData = octx.getImageData(0, 0, off.width, off.height);
-  const data = imageData.data;
-  const threshold = Math.max(8, 46 - Number(layer.loose || 0) * 0.22);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3];
-    data[i] = 0;
-    data[i + 1] = 0;
-    data[i + 2] = 0;
-    data[i + 3] = a > threshold ? 255 : 0;
-  }
-  octx.putImageData(imageData, 0, 0);
-  octx.globalCompositeOperation = 'source-in';
+  const bodyWidth = Math.max(8, layer.strokeWidth);
+  const resampled = resampleMetaballPoints(canvasPoints, Math.max(3, bodyWidth * 0.32));
+  const step = Math.max(4, Math.floor(bodyWidth / 6));
+  const cols = Math.ceil(off.width / step) + 2;
+  const rows = Math.ceil(off.height / step) + 2;
+  const field = buildMetaballField(resampled, bodyWidth * 0.56, cols, rows, step);
+  let maxVal = 0;
+  for (let i = 0; i < field.length; i++) if (field[i] > maxVal) maxVal = field[i];
+  if (maxVal < 0.001) return;
+  const loose = Number(layer.loose || 0) / 100;
+  const rough = Number(layer.rough || 0) / 100;
+  const threshold = maxVal * (0.22 + loose * 0.34) * (0.56 + (1 - (layer.smooth || 0) / 100) * 0.44);
+  const noiseDistort = rough * 4.6;
+  const noiseFreq = 0.16 + rough * 0.22;
+  const chains = chainMetaballSegments(marchMetaball(field, cols, rows, step, threshold, noiseDistort, noiseFreq));
+  if (!chains.length) return;
   octx.fillStyle = layer.fillColor;
-  octx.fillRect(0, 0, off.width, off.height);
-  octx.globalCompositeOperation = 'source-over';
+  octx.beginPath();
+  chains.forEach(function (chain) {
+    smoothPathCtx(octx, chain);
+    octx.closePath();
+  });
+  octx.fill('evenodd');
+  if (rough > 0.02) {
+    const imageData = octx.getImageData(0, 0, off.width, off.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 0) continue;
+      const n = gaussianNoise() * (6 + rough * 28);
+      data[i] = clamp(data[i] + n, 0, 255);
+      data[i + 1] = clamp(data[i + 1] + n * 0.8, 0, 255);
+      data[i + 2] = clamp(data[i + 2] + n * 0.6, 0, 255);
+    }
+    octx.putImageData(imageData, 0, 0);
+  }
   if (layer.strokeColor && layer.strokeWidth > 0) {
-    drawSmoothPath(octx, canvasPoints, layer.closed);
-    octx.lineWidth = Math.max(1.25, Math.min(10, bodyWidth * 0.12));
     octx.strokeStyle = layer.strokeColor;
+    octx.lineWidth = Math.max(0.8, layer.strokeWidth * 0.08);
+    octx.beginPath();
+    chains.forEach(function (chain) {
+      smoothPathCtx(octx, chain);
+      octx.closePath();
+    });
     octx.stroke();
   }
   ctxRef.drawImage(off, -layer.w / 2, -layer.h / 2);
@@ -1657,7 +1824,7 @@ function renderTextOnPath(layer) {
   const pathPoints = getRenderablePathPoints(layer);
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i] === ' ' ? '\u00A0' : chars[i];
-    const chWidth = measureCtx.measureText(ch).width + layer.spacing;
+    const chWidth = measureCtx.measureText(ch).width + layer.spacing + Math.max(0, layer.letterSpacing || 0);
     const sample = samplePathAt(pathPoints, false, cursor + chWidth * 0.5);
     ctx.save();
     ctx.translate(sample.x, sample.y);
@@ -1737,7 +1904,7 @@ function renderDrawPreview() {
   ctx.save();
   ctx.strokeStyle = drawPreview.kind === 'blob' ? '#d98f37' : drawPreview.kind === 'pathtext' ? '#8b6dcf' : '#d99f56';
   ctx.fillStyle = 'rgba(217,143,55,0.18)';
-  ctx.lineWidth = drawPreview.kind === 'arrow' ? 4 : drawPreview.kind === 'blob' ? 3 : 2;
+  ctx.lineWidth = drawPreview.kind === 'blob' ? 3 : 2;
   ctx.setLineDash([6, 5]);
   if (drawPreview.kind === 'blob') {
     drawSmoothPath(ctx, drawPreview.points, true);
