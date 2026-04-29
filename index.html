@@ -574,6 +574,7 @@ let draggedLayerId = null;
 const paperTextureCache = new Map();
 let drawPreview = null;
 let activePathPoint = null;
+let selectedPathPoint = null;
 
 function defaultTextLayer(x, y, text, name) {
   return {
@@ -676,8 +677,36 @@ function simplifyDrawPoints(points, minDist) {
   return clonePathPoints(out);
 }
 
+function perpendicularDistance(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+  return Math.abs(dy * point.x - dx * point.y + end.x * start.y - end.y * start.x) / Math.hypot(dx, dy);
+}
+
+function simplifyDouglasPeucker(points, epsilon) {
+  if (!points || points.length < 3) return clonePathPoints(points || []);
+  let maxDistance = 0;
+  let index = 0;
+  const end = points.length - 1;
+  for (let i = 1; i < end; i++) {
+    const distance = perpendicularDistance(points[i], points[0], points[end]);
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      index = i;
+    }
+  }
+  if (maxDistance > epsilon) {
+    const left = simplifyDouglasPeucker(points.slice(0, index + 1), epsilon);
+    const right = simplifyDouglasPeucker(points.slice(index), epsilon);
+    return left.slice(0, -1).concat(right);
+  }
+  return [points[0], points[end]];
+}
+
 function normalizePathPoints(points, closed) {
-  const simple = simplifyDrawPoints(points, closed ? 8 : 6);
+  const stepped = simplifyDrawPoints(points, closed ? 12 : 10);
+  const simple = simplifyDouglasPeucker(stepped, closed ? 3.6 : 2.8);
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -698,6 +727,43 @@ function normalizePathPoints(points, closed) {
       return { x: p.x - minX + pad, y: p.y - minY + pad };
     })
   };
+}
+
+function normalizePathLayerBounds(layer, pad) {
+  if (!layer || layer.type !== 'path' || !layer.points || !layer.points.length) return;
+  const inset = pad || 24;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < layer.points.length; i++) {
+    minX = Math.min(minX, layer.points[i].x);
+    minY = Math.min(minY, layer.points[i].y);
+    maxX = Math.max(maxX, layer.points[i].x);
+    maxY = Math.max(maxY, layer.points[i].y);
+  }
+  const oldW = layer.w;
+  const oldH = layer.h;
+  const dx = inset - minX;
+  const dy = inset - minY;
+  const newW = Math.max(40, maxX - minX + inset * 2);
+  const newH = Math.max(40, maxY - minY + inset * 2);
+  for (let i = 0; i < layer.points.length; i++) {
+    layer.points[i].x += dx;
+    layer.points[i].y += dy;
+  }
+  const oldCenterX = layer.x + oldW / 2;
+  const oldCenterY = layer.y + oldH / 2;
+  const shiftLocalX = newW / 2 - oldW / 2 - dx;
+  const shiftLocalY = newH / 2 - oldH / 2 - dy;
+  const cos = Math.cos(layer.rot);
+  const sin = Math.sin(layer.rot);
+  const newCenterX = oldCenterX + shiftLocalX * cos - shiftLocalY * sin;
+  const newCenterY = oldCenterY + shiftLocalX * sin + shiftLocalY * cos;
+  layer.w = newW;
+  layer.h = newH;
+  layer.x = newCenterX - newW / 2;
+  layer.y = newCenterY - newH / 2;
 }
 
 function makeSnapshot() {
@@ -945,6 +1011,12 @@ function getPathPointWorld(layer, point) {
     x: layer.x + layer.w / 2 + localX * cos - localY * sin,
     y: layer.y + layer.h / 2 + localX * sin + localY * cos
   };
+}
+
+function getRenderablePathPoints(layer) {
+  return getRenderedPathPoints(layer).map(function (p) {
+    return { x: p.x - layer.w / 2, y: p.y - layer.h / 2 };
+  });
 }
 
 function getPathSegments(points, closed) {
@@ -1423,21 +1495,23 @@ function renderTextLayer(layer) {
 }
 
 function renderPathLayer(layer) {
-  const points = getRenderedPathPoints(layer);
+  const points = getRenderablePathPoints(layer);
   if (!points.length) return;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   if (layer.pathKind === 'blob') {
-    drawSmoothPath(ctx, points, true);
-    ctx.fillStyle = layer.fillColor;
-    ctx.fill();
+    drawSmoothPath(ctx, points, layer.closed);
+    if (layer.closed) {
+      ctx.fillStyle = layer.fillColor;
+      ctx.fill();
+    }
     ctx.lineWidth = layer.strokeWidth;
     ctx.strokeStyle = layer.strokeColor;
     ctx.stroke();
     return;
   }
   if (layer.pathKind === 'brush' || layer.pathKind === 'arrow') {
-    drawSmoothPath(ctx, points, false);
+    drawSmoothPath(ctx, points, layer.closed && layer.pathKind !== 'arrow');
     ctx.lineWidth = layer.strokeWidth;
     ctx.strokeStyle = layer.strokeColor;
     ctx.stroke();
@@ -1458,7 +1532,7 @@ function renderPathLayer(layer) {
   }
   if (layer.pathKind === 'textpath') {
     if (layer.showPath) {
-      drawSmoothPath(ctx, points, false);
+      drawSmoothPath(ctx, points, layer.closed);
       ctx.lineWidth = layer.strokeWidth;
       ctx.strokeStyle = layer.strokeColor;
       ctx.globalAlpha = 0.55;
@@ -1478,7 +1552,7 @@ function renderTextOnPath(layer) {
   ctx.textBaseline = 'middle';
   const chars = text.split('');
   let cursor = 0;
-  const pathPoints = getRenderedPathPoints(layer);
+  const pathPoints = getRenderablePathPoints(layer);
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i] === ' ' ? '\u00A0' : chars[i];
     const chWidth = measureCtx.measureText(ch).width + layer.spacing;
@@ -1506,7 +1580,8 @@ function renderSelection(layer) {
     for (let i = 0; i < layer.points.length; i++) {
       const p = layer.points[i];
       ctx.beginPath();
-      ctx.fillStyle = '#ffffff';
+      const isSelected = selectedPathPoint && selectedPathPoint.layerId === layer.id && selectedPathPoint.pointIndex === i;
+      ctx.fillStyle = isSelected ? '#d98f37' : '#ffffff';
       ctx.strokeStyle = '#d99f56';
       ctx.lineWidth = 1.2;
       ctx.arc(p.x - layer.w / 2, p.y - layer.h / 2, 4.5, 0, Math.PI * 2);
@@ -1712,6 +1787,8 @@ function insertPathPoint(layer, worldX, worldY) {
   const local = toLayerLocal(layer, { x: worldX, y: worldY });
   const insertAt = segIndex + 1;
   layer.points.splice(insertAt, 0, { x: local.x + layer.w / 2, y: local.y + layer.h / 2 });
+  normalizePathLayerBounds(layer);
+  selectedPathPoint = { layerId: layer.id, pointIndex: insertAt };
   pushHistorySnapshot();
   render();
   syncInspector();
@@ -1720,8 +1797,10 @@ function insertPathPoint(layer, worldX, worldY) {
 }
 
 function removePathPoint(layer, pointIndex) {
-  if (!layer || layer.type !== 'path' || layer.points.length <= 2) return;
+  if (!layer || layer.type !== 'path' || layer.points.length <= (layer.closed ? 3 : 2)) return;
   layer.points.splice(pointIndex, 1);
+  normalizePathLayerBounds(layer);
+  selectedPathPoint = null;
   pushHistorySnapshot();
   render();
   syncInspector();
@@ -1894,6 +1973,7 @@ canvas.addEventListener('mousedown', function (e) {
       if (active.type === 'path') {
         const pathPointIndex = getNearestPathPointIndex(active, p.x, p.y, 10);
         if (pathPointIndex >= 0) {
+          selectedPathPoint = { layerId: active.id, pointIndex: pathPointIndex };
           if (e.shiftKey) {
             removePathPoint(active, pathPointIndex);
             pointerDown = false;
@@ -1925,12 +2005,14 @@ canvas.addEventListener('mousedown', function (e) {
     const hit = hitLayer(p.x, p.y);
     if (hit) {
       state.activeId = hit.id;
+      selectedPathPoint = null;
       state.drag = { layerId: hit.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y };
       updateLayerPanel();
       syncInspector();
       render();
     } else {
       state.activeId = null;
+      selectedPathPoint = null;
       updateLayerPanel();
       syncInspector();
       render();
@@ -1962,6 +2044,7 @@ canvas.addEventListener('mousemove', function (e) {
       if (layer) {
         const local = toLayerLocal(layer, p);
         layer.points[activePathPoint.pointIndex] = { x: local.x + layer.w / 2, y: local.y + layer.h / 2 };
+        selectedPathPoint = { layerId: layer.id, pointIndex: activePathPoint.pointIndex };
         render();
       }
     } else if (state.drag) {
@@ -2014,10 +2097,15 @@ canvas.addEventListener('mouseup', function () {
     addPathLayer(drawPreview.kind, drawPreview.points);
     drawPreview = null;
   }
+  if (activePathPoint) {
+    const layer = state.layers.find(function (item) { return item.id === activePathPoint.layerId; });
+    if (layer) normalizePathLayerBounds(layer);
+  }
   if (state.drag || state.resize || activePathPoint) pushHistorySnapshot();
   state.drag = null;
   state.resize = null;
   activePathPoint = null;
+  render();
 });
 
 canvas.addEventListener('mouseleave', function () {
@@ -2244,18 +2332,23 @@ document.getElementById('btn-path-toggle-close').addEventListener('click', funct
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
   active.closed = !active.closed;
+  if (active.pathKind === 'blob' && !active.closed) active.pathKind = 'brush';
+  if (active.pathKind === 'brush' && active.closed) active.fillColor = active.fillColor || '#d98f37';
   render();
+  syncInspector();
   pushHistorySnapshot();
+  setStatus(active.closed ? 'Path closed' : 'Path opened');
 });
 
 document.getElementById('btn-path-delete-point').addEventListener('click', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
-  if (active.points.length > 2) {
-    active.points.pop();
-    render();
-    pushHistorySnapshot();
-    setStatus('Last point removed');
+  if (selectedPathPoint && selectedPathPoint.layerId === active.id) {
+    removePathPoint(active, selectedPathPoint.pointIndex);
+    return;
+  }
+  if (active.points.length > (active.closed ? 3 : 2)) {
+    removePathPoint(active, active.points.length - 1);
   }
 });
 
