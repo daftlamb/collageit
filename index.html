@@ -21,7 +21,7 @@
   --muted:#7f7568;
   --accent:#19130d;
   --accent-2:#d98f37;
-  --shadow:0 18px 48px rgba(79,61,40,0.12);
+  --shadow:none;
 }
 body{
   background:
@@ -107,6 +107,15 @@ button,input,select,textarea{font:inherit}
 }
 #toolbar-spacer{ margin-left:auto; }
 #canvas-size-select,.font-select{
+  height:32px;
+  border-radius:7px;
+  border:1px solid var(--line);
+  background:var(--surface);
+  color:var(--text);
+  padding:0 10px;
+  font-size:12px;
+}
+#export-scale-select{
   height:32px;
   border-radius:7px;
   border:1px solid var(--line);
@@ -247,6 +256,7 @@ button,input,select,textarea{font:inherit}
 #canvas-wrapper{
   position:relative;
   box-shadow:var(--shadow);
+  border:1px solid rgba(28,23,17,0.16);
 }
 #main-canvas{
   display:block;
@@ -404,6 +414,11 @@ input[type="range"]{
   <div class="sep"></div>
   <button class="icon-btn" id="btn-undo" title="Undo (Ctrl/Cmd+Z)">&#8630;</button>
   <button class="icon-btn" id="btn-redo" title="Redo (Ctrl/Cmd+Shift+Z)">&#8631;</button>
+  <select id="export-scale-select">
+    <option value="1" selected>1x PNG</option>
+    <option value="2">2x PNG</option>
+    <option value="4">4x PNG</option>
+  </select>
   <button class="action-btn primary" id="btn-export">Export PNG</button>
   <div id="toolbar-spacer"></div>
   <div class="pill">simple collage relationships, not precision masking</div>
@@ -465,6 +480,9 @@ input[type="range"]{
         <input type="range" id="img-tint" min="-100" max="100" value="0">
         <div class="row"><label>Print Blur</label><span class="value" id="blur-val">0</span></div>
         <input type="range" id="img-blur" min="0" max="18" value="0">
+        <div class="row"><label>Border</label><span class="value" id="img-border-val">0</span></div>
+        <input type="range" id="img-border" min="0" max="32" value="0">
+        <input class="field" id="img-border-color" type="color" value="#111111">
       </div>
 
       <div class="section hidden" id="text-section">
@@ -601,7 +619,11 @@ function defaultTextLayer(x, y, text, name) {
     lineHeight: 1.2,
     letterSpacing: 0,
     color: '#111111',
-    align: 'left'
+    align: 'left',
+    role: 'text',
+    bgColor: null,
+    paddingX: 0,
+    paddingY: 0
   };
 }
 
@@ -799,6 +821,8 @@ function makeSnapshot() {
       if (layer.type === 'image') {
         plain.src = layer.src;
         plain.effects = cloneEffects(layer.effects);
+        plain.borderWidth = layer.borderWidth || 0;
+        plain.borderColor = layer.borderColor || '#111111';
       } else if (layer.type === 'text') {
         plain.text = layer.text;
         plain.fontFamily = layer.fontFamily;
@@ -807,6 +831,10 @@ function makeSnapshot() {
         plain.letterSpacing = layer.letterSpacing;
         plain.color = layer.color;
         plain.align = layer.align;
+        plain.role = layer.role;
+        plain.bgColor = layer.bgColor;
+        plain.paddingX = layer.paddingX;
+        plain.paddingY = layer.paddingY;
       } else if (layer.type === 'path') {
         plain.pathKind = layer.pathKind;
         plain.points = clonePathPoints(layer.points);
@@ -882,7 +910,11 @@ function hydrateLayer(plain) {
     lineHeight: plain.lineHeight || 1.2,
     letterSpacing: plain.letterSpacing,
     color: plain.color,
-    align: plain.align
+    align: plain.align,
+    role: plain.role || 'text',
+    bgColor: plain.bgColor || null,
+    paddingX: plain.paddingX || 0,
+    paddingY: plain.paddingY || 0
   });
   if (plain.type === 'path') return Promise.resolve({
     id: plain.id,
@@ -929,7 +961,9 @@ function hydrateLayer(plain) {
         rot: plain.rot,
         clip: cloneClip(plain.clip),
         name: plain.name,
-        effects: cloneEffects(plain.effects)
+        effects: cloneEffects(plain.effects),
+        borderWidth: plain.borderWidth || 0,
+        borderColor: plain.borderColor || '#111111'
       });
     };
     img.src = plain.src;
@@ -979,6 +1013,14 @@ function clamp(v, min, max) {
 function setCanvasSize(w, h) {
   state.canvasW = w;
   state.canvasH = h;
+  state.layers.forEach(function (layer) {
+    if (layer.type === 'text' && layer.role === 'credit') {
+      layer.x = 0;
+      layer.w = state.canvasW;
+      layer.h = layer.h || 34;
+      layer.y = state.canvasH - layer.h;
+    }
+  });
   fitCanvas();
   pushHistorySnapshot();
 }
@@ -1250,6 +1292,19 @@ function renderRoughBrush(ctxRef, points, layer) {
     ctxRef.stroke();
     ctxRef.restore();
   }
+  if (rough > 24 && layer.strokeWidth > 0) {
+    const jitterLine = points.map(function (p, idx) {
+      const wobble = (Math.sin(idx * 0.55) + Math.cos(idx * 0.42 + 1.3)) * (rough / 100) * layer.strokeWidth * 0.14;
+      return { x: p.x + wobble, y: p.y - wobble * 0.5 };
+    });
+    ctxRef.save();
+    ctxRef.globalAlpha = 0.16;
+    drawSmoothPath(ctxRef, jitterLine, layer.closed);
+    ctxRef.lineWidth = Math.max(0.6, layer.strokeWidth * 0.55);
+    ctxRef.strokeStyle = layer.strokeColor;
+    ctxRef.stroke();
+    ctxRef.restore();
+  }
 }
 
 function renderBlobShape(ctxRef, layer, points) {
@@ -1453,7 +1508,9 @@ function createImageLayer(img, name, src) {
     rot: 0,
     clip: null,
     name: name || 'Image',
-    effects: cloneEffects(DEFAULT_IMAGE_EFFECTS)
+    effects: cloneEffects(DEFAULT_IMAGE_EFFECTS),
+    borderWidth: 0,
+    borderColor: '#111111'
   };
 }
 
@@ -1470,13 +1527,20 @@ function addImageLayer(img, name, src) {
 }
 
 function addCreditLayer() {
-  const layer = defaultTextLayer(36, state.canvasH - 52, 'credit / note', 'Credit');
+  const blockH = 34;
+  const layer = defaultTextLayer(0, state.canvasH - blockH, 'credit / note', 'Credit');
   layer.fontFamily = 'Space Grotesk';
   layer.fontSize = 14;
   layer.color = '#5f5851';
   layer.lineHeight = 1.15;
   layer.letterSpacing = 1;
-  updateTextMetrics(layer);
+  layer.align = 'center';
+  layer.role = 'credit';
+  layer.bgColor = '#ffffff';
+  layer.paddingX = 18;
+  layer.paddingY = 8;
+  layer.w = state.canvasW;
+  layer.h = blockH;
   state.layers.push(layer);
   state.activeId = layer.id;
   updateLayerPanel();
@@ -1530,7 +1594,9 @@ function duplicateLayer() {
       rot: active.rot,
       clip: cloneClip(active.clip),
       name: active.name + ' Copy',
-      effects: cloneEffects(active.effects)
+      effects: cloneEffects(active.effects),
+      borderWidth: active.borderWidth || 0,
+      borderColor: active.borderColor || '#111111'
     };
     state.layers.push(copy);
     state.activeId = copy.id;
@@ -1625,9 +1691,9 @@ function hashString(text) {
 }
 
 function getPaperTexture(color) {
-  const key = color + '|256';
+  const key = color + '|512';
   if (paperTextureCache.has(key)) return paperTextureCache.get(key);
-  const size = 256;
+  const size = 512;
   const off = document.createElement('canvas');
   off.width = size;
   off.height = size;
@@ -1640,21 +1706,21 @@ function getPaperTexture(color) {
   const seed = hashString(color);
   const warmBias = ((seed % 17) - 8) * 0.25;
   for (let i = 0; i < pixels.length; i += 4) {
-    const noise = gaussianNoise() * 5.5;
-    const fiber = (Math.sin((i / 4 % size) * 0.12 + (seed % 23)) + Math.cos(Math.floor(i / 4 / size) * 0.08)) * 1.4;
+    const noise = gaussianNoise() * 2.8;
+    const fiber = (Math.sin((i / 4 % size) * 0.22 + (seed % 23)) + Math.cos(Math.floor(i / 4 / size) * 0.17)) * 0.7;
     pixels[i] = clamp(pixels[i] + noise + warmBias, 0, 255);
     pixels[i + 1] = clamp(pixels[i + 1] + noise * 0.85, 0, 255);
     pixels[i + 2] = clamp(pixels[i + 2] + noise * 0.65 - warmBias, 0, 255);
     pixels[i + 3] = 255;
-    if ((i / 4) % 41 === 0) {
-      pixels[i] = clamp(pixels[i] - 5, 0, 255);
-      pixels[i + 1] = clamp(pixels[i + 1] - 4, 0, 255);
-      pixels[i + 2] = clamp(pixels[i + 2] - 3, 0, 255);
+    if ((i / 4) % 113 === 0) {
+      pixels[i] = clamp(pixels[i] - 2, 0, 255);
+      pixels[i + 1] = clamp(pixels[i + 1] - 2, 0, 255);
+      pixels[i + 2] = clamp(pixels[i + 2] - 1, 0, 255);
     }
-    if (fiber > 2.1) {
-      pixels[i] = clamp(pixels[i] - 6, 0, 255);
-      pixels[i + 1] = clamp(pixels[i + 1] - 5, 0, 255);
-      pixels[i + 2] = clamp(pixels[i + 2] - 4, 0, 255);
+    if (fiber > 0.95) {
+      pixels[i] = clamp(pixels[i] - 3, 0, 255);
+      pixels[i + 1] = clamp(pixels[i + 1] - 2, 0, 255);
+      pixels[i + 2] = clamp(pixels[i + 2] - 2, 0, 255);
     }
   }
   octx.putImageData(data, 0, 0);
@@ -1759,22 +1825,31 @@ function renderTextLayer(layer) {
   ctx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
   ctx.fillStyle = layer.color;
   ctx.textBaseline = 'top';
+  if (layer.role === 'credit') {
+    if (layer.bgColor) {
+      ctx.fillStyle = layer.bgColor;
+      ctx.fillRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
+    }
+    ctx.fillStyle = layer.color;
+  }
+  const leftPad = layer.paddingX || 0;
+  const topPad = layer.paddingY || 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineWidth = getLineRenderWidth(line, layer);
-    let x = -layer.w / 2;
+    let x = -layer.w / 2 + leftPad;
     if (layer.align === 'center') {
       x = -lineWidth / 2;
     } else if (layer.align === 'right') {
-      x = layer.w / 2 - lineWidth;
+      x = layer.w / 2 - lineWidth - leftPad;
     }
     if (!layer.letterSpacing) {
-      ctx.fillText(line, x, -layer.h / 2 + i * layer.fontSize * layer.lineHeight);
+      ctx.fillText(line, x, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
     } else {
       let cursor = x;
       for (let c = 0; c < line.length; c++) {
         const ch = line[c];
-        ctx.fillText(ch, cursor, -layer.h / 2 + i * layer.fontSize * layer.lineHeight);
+        ctx.fillText(ch, cursor, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
         cursor += measureCtx.measureText(ch).width + layer.letterSpacing;
       }
     }
@@ -1936,6 +2011,19 @@ function render() {
     if (layer.type === 'image') {
       const imgCanvas = getProcessedImage(layer);
       ctx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+      if (layer.borderWidth > 0) {
+        ctx.lineWidth = layer.borderWidth;
+        ctx.strokeStyle = layer.borderColor || '#111111';
+        if (layer.clip && layer.clip.length > 2) {
+          ctx.beginPath();
+          ctx.moveTo(layer.clip[0].x, layer.clip[0].y);
+          for (let i = 1; i < layer.clip.length; i++) ctx.lineTo(layer.clip[i].x, layer.clip[i].y);
+          ctx.closePath();
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
+        }
+      }
     } else if (layer.type === 'text') {
       renderTextLayer(layer);
     } else if (layer.type === 'path') {
@@ -2196,10 +2284,13 @@ function syncInspector() {
     document.getElementById('img-fade').value = fx.fade;
     document.getElementById('img-tint').value = fx.tint;
     document.getElementById('img-blur').value = fx.blur;
+    document.getElementById('img-border').value = active.borderWidth || 0;
+    document.getElementById('img-border-color').value = active.borderColor || '#111111';
     syncRangeValue('grain-val', fx.grain);
     syncRangeValue('fade-val', fx.fade);
     syncRangeValue('tint-val', fx.tint);
     syncRangeValue('blur-val', fx.blur);
+    syncRangeValue('img-border-val', active.borderWidth || 0);
   } else if (active.type === 'text' || (active.type === 'path' && active.pathKind === 'textpath')) {
     document.getElementById('text-content').value = active.text;
     document.getElementById('text-font').value = active.fontFamily;
@@ -2477,6 +2568,23 @@ document.getElementById('layer-rot').addEventListener('change', pushHistorySnaps
   document.getElementById(id).addEventListener('change', pushHistorySnapshot);
 });
 
+document.getElementById('img-border').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'image') return;
+  active.borderWidth = Number(this.value);
+  syncRangeValue('img-border-val', this.value);
+  render();
+});
+document.getElementById('img-border').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('img-border-color').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'image') return;
+  active.borderColor = this.value;
+  render();
+});
+document.getElementById('img-border-color').addEventListener('change', pushHistorySnapshot);
+
 document.getElementById('text-content').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
@@ -2675,11 +2783,19 @@ document.getElementById('btn-export').addEventListener('click', function () {
   const prevActive = state.activeId;
   state.activeId = null;
   render();
-  canvas.toBlob(function (blob) {
+  const scale = Number(document.getElementById('export-scale-select').value || 1);
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = canvas.width * scale;
+  outCanvas.height = canvas.height * scale;
+  const outCtx = outCanvas.getContext('2d');
+  outCtx.imageSmoothingEnabled = true;
+  outCtx.imageSmoothingQuality = 'high';
+  outCtx.drawImage(canvas, 0, 0, outCanvas.width, outCanvas.height);
+  outCanvas.toBlob(function (blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'collage.png';
+    a.download = 'collage-' + scale + 'x.png';
     a.click();
     URL.revokeObjectURL(url);
     state.activeId = prevActive;
