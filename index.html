@@ -396,7 +396,6 @@ input[type="range"]{
   <button class="tool-btn" id="btn-text" title="Add Text (T)">Text</button>
   <button class="tool-btn" id="btn-brush" title="Brush Path (B)">Brush</button>
   <button class="tool-btn" id="btn-blob" title="Blob Shape (G)">Blob</button>
-  <button class="tool-btn" id="btn-arrow" title="Arrow Path (A)">Arrow</button>
   <button class="tool-btn" id="btn-pathtext" title="Text on Path (P)">Path Text</button>
   <div class="sep"></div>
   <button class="action-btn" id="btn-upload" title="Upload Image">+ Image</button>
@@ -509,15 +508,24 @@ input[type="range"]{
           <select class="field font-select" id="path-kind">
             <option value="brush">Brush</option>
             <option value="blob">Blob</option>
-            <option value="arrow">Arrow</option>
             <option value="textpath">Path Text</option>
           </select>
           <div class="row"><label>Stroke</label><span class="value" id="path-stroke-val">6</span></div>
           <input type="range" id="path-stroke" min="1" max="48" value="6">
           <div class="row"><label>Smooth</label><span class="value" id="path-smooth-val">35</span></div>
           <input type="range" id="path-smooth" min="0" max="100" value="35">
+          <div class="row"><label>Loose</label><span class="value" id="path-loose-val">14</span></div>
+          <input type="range" id="path-loose" min="0" max="100" value="14">
+          <div class="row"><label>Rough</label><span class="value" id="path-rough-val">18</span></div>
+          <input type="range" id="path-rough" min="0" max="100" value="18">
           <div class="row"><label>Spacing</label><span class="value" id="path-spacing-val">0</span></div>
           <input type="range" id="path-spacing" min="-10" max="40" value="0">
+          <select class="field font-select" id="path-arrow-style">
+            <option value="none">No Arrow</option>
+            <option value="triangle">Triangle Arrow</option>
+            <option value="open">Open Arrow</option>
+            <option value="chevron">Chevron Arrow</option>
+          </select>
           <div class="inline-actions">
             <input class="field" id="path-stroke-color" type="color" value="#111111">
             <input class="field" id="path-fill-color" type="color" value="#d98f37">
@@ -612,11 +620,14 @@ function defaultPathLayer(kind, points, name) {
     pathKind: kind,
     points: normalized.points,
     closed: kind === 'blob',
-    strokeWidth: kind === 'textpath' ? 2 : (kind === 'arrow' ? 5 : kind === 'blob' ? 3 : 6),
+    strokeWidth: kind === 'textpath' ? 2 : (kind === 'blob' ? 34 : 6),
     smooth: kind === 'blob' ? 60 : 35,
+    loose: kind === 'blob' ? 24 : 14,
+    rough: kind === 'brush' ? 18 : 8,
     strokeColor: '#111111',
     fillColor: kind === 'blob' ? '#d98f37' : '#d9b98b',
     spacing: 0,
+    arrowStyle: 'none',
     showPath: kind === 'textpath',
     text: kind === 'textpath' ? 'path text' : '',
     fontFamily: 'Cormorant Garamond',
@@ -705,8 +716,8 @@ function simplifyDouglasPeucker(points, epsilon) {
 }
 
 function normalizePathPoints(points, closed) {
-  const stepped = simplifyDrawPoints(points, closed ? 12 : 10);
-  const simple = simplifyDouglasPeucker(stepped, closed ? 3.6 : 2.8);
+  const stepped = simplifyDrawPoints(points, closed ? 18 : 15);
+  const simple = simplifyDouglasPeucker(stepped, closed ? 6.5 : 5.2);
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -802,9 +813,12 @@ function makeSnapshot() {
         plain.closed = layer.closed;
         plain.strokeWidth = layer.strokeWidth;
         plain.smooth = layer.smooth;
+        plain.loose = layer.loose;
+        plain.rough = layer.rough;
         plain.strokeColor = layer.strokeColor;
         plain.fillColor = layer.fillColor;
         plain.spacing = layer.spacing;
+        plain.arrowStyle = layer.arrowStyle;
         plain.showPath = layer.showPath;
         plain.text = layer.text;
         plain.fontFamily = layer.fontFamily;
@@ -880,14 +894,17 @@ function hydrateLayer(plain) {
     rot: plain.rot,
     clip: cloneClip(plain.clip),
     name: plain.name,
-    pathKind: plain.pathKind,
+    pathKind: plain.pathKind === 'arrow' ? 'brush' : plain.pathKind,
     points: clonePathPoints(plain.points),
     closed: !!plain.closed,
     strokeWidth: plain.strokeWidth,
     smooth: plain.smooth,
+    loose: plain.loose || 0,
+    rough: plain.rough || 0,
     strokeColor: plain.strokeColor,
     fillColor: plain.fillColor,
     spacing: plain.spacing || 0,
+    arrowStyle: plain.pathKind === 'arrow' ? 'triangle' : (plain.arrowStyle || 'none'),
     showPath: plain.showPath !== false,
     text: plain.text || '',
     fontFamily: plain.fontFamily || 'Cormorant Garamond',
@@ -1017,6 +1034,109 @@ function getRenderablePathPoints(layer) {
   return getRenderedPathPoints(layer).map(function (p) {
     return { x: p.x - layer.w / 2, y: p.y - layer.h / 2 };
   });
+}
+
+function drawArrowHead(ctxRef, head, tail, style, color, size) {
+  const angle = Math.atan2(head.y - tail.y, head.x - tail.x);
+  const wing = Math.max(0.42, Math.min(0.68, 0.55));
+  ctxRef.save();
+  ctxRef.strokeStyle = color;
+  ctxRef.fillStyle = color;
+  ctxRef.lineWidth = Math.max(1.2, size * 0.18);
+  if (style === 'triangle') {
+    ctxRef.beginPath();
+    ctxRef.moveTo(head.x, head.y);
+    ctxRef.lineTo(head.x - Math.cos(angle - wing) * size, head.y - Math.sin(angle - wing) * size);
+    ctxRef.lineTo(head.x - Math.cos(angle + wing) * size, head.y - Math.sin(angle + wing) * size);
+    ctxRef.closePath();
+    ctxRef.fill();
+  } else if (style === 'open') {
+    ctxRef.beginPath();
+    ctxRef.moveTo(head.x, head.y);
+    ctxRef.lineTo(head.x - Math.cos(angle - wing) * size, head.y - Math.sin(angle - wing) * size);
+    ctxRef.moveTo(head.x, head.y);
+    ctxRef.lineTo(head.x - Math.cos(angle + wing) * size, head.y - Math.sin(angle + wing) * size);
+    ctxRef.stroke();
+  } else if (style === 'chevron') {
+    ctxRef.beginPath();
+    ctxRef.moveTo(head.x - Math.cos(angle - wing) * size, head.y - Math.sin(angle - wing) * size);
+    ctxRef.lineTo(head.x, head.y);
+    ctxRef.lineTo(head.x - Math.cos(angle + wing) * size, head.y - Math.sin(angle + wing) * size);
+    ctxRef.stroke();
+  }
+  ctxRef.restore();
+}
+
+function renderRoughBrush(ctxRef, points, layer) {
+  drawSmoothPath(ctxRef, points, layer.closed);
+  ctxRef.lineWidth = layer.strokeWidth;
+  ctxRef.strokeStyle = layer.strokeColor;
+  ctxRef.stroke();
+  const rough = Number(layer.rough || 0);
+  if (rough <= 0) return;
+  const overlays = rough > 55 ? 3 : 2;
+  for (let k = 0; k < overlays; k++) {
+    const jitter = 0.18 + rough / 150;
+    const ghost = points.map(function (p, idx) {
+      const amp = (Math.sin(idx * 1.7 + k * 2.1) + Math.cos(idx * 0.9 + k * 1.3)) * layer.strokeWidth * jitter;
+      return {
+        x: p.x + Math.sin(idx * 0.7 + k) * amp * 0.18,
+        y: p.y + Math.cos(idx * 0.8 + k * 1.6) * amp * 0.18
+      };
+    });
+    ctxRef.save();
+    ctxRef.globalAlpha = 0.22;
+    drawSmoothPath(ctxRef, ghost, layer.closed);
+    ctxRef.lineWidth = Math.max(1, layer.strokeWidth * (0.68 + k * 0.1));
+    ctxRef.strokeStyle = layer.strokeColor;
+    ctxRef.stroke();
+    ctxRef.restore();
+  }
+}
+
+function renderBlobShape(ctxRef, layer, points) {
+  const off = document.createElement('canvas');
+  off.width = Math.max(8, Math.ceil(layer.w));
+  off.height = Math.max(8, Math.ceil(layer.h));
+  const octx = off.getContext('2d');
+  const canvasPoints = points.map(function (p) { return { x: p.x + layer.w / 2, y: p.y + layer.h / 2 }; });
+  const looseBlur = Number(layer.loose || 0) * 0.12;
+  const bodyWidth = Math.max(10, layer.strokeWidth);
+  octx.lineJoin = 'round';
+  octx.lineCap = 'round';
+  octx.filter = looseBlur > 0 ? 'blur(' + looseBlur.toFixed(2) + 'px)' : 'none';
+  drawSmoothPath(octx, canvasPoints, false);
+  octx.lineWidth = bodyWidth;
+  octx.strokeStyle = '#000';
+  octx.stroke();
+  if (layer.closed) {
+    drawSmoothPath(octx, canvasPoints, true);
+    octx.fillStyle = '#000';
+    octx.fill();
+  }
+  octx.filter = 'none';
+  const imageData = octx.getImageData(0, 0, off.width, off.height);
+  const data = imageData.data;
+  const threshold = Math.max(8, 46 - Number(layer.loose || 0) * 0.22);
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3];
+    data[i] = 0;
+    data[i + 1] = 0;
+    data[i + 2] = 0;
+    data[i + 3] = a > threshold ? 255 : 0;
+  }
+  octx.putImageData(imageData, 0, 0);
+  octx.globalCompositeOperation = 'source-in';
+  octx.fillStyle = layer.fillColor;
+  octx.fillRect(0, 0, off.width, off.height);
+  octx.globalCompositeOperation = 'source-over';
+  if (layer.strokeColor && layer.strokeWidth > 0) {
+    drawSmoothPath(octx, canvasPoints, layer.closed);
+    octx.lineWidth = Math.max(1.25, Math.min(10, bodyWidth * 0.12));
+    octx.strokeStyle = layer.strokeColor;
+    octx.stroke();
+  }
+  ctxRef.drawImage(off, -layer.w / 2, -layer.h / 2);
 }
 
 function getPathSegments(points, closed) {
@@ -1500,33 +1620,15 @@ function renderPathLayer(layer) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   if (layer.pathKind === 'blob') {
-    drawSmoothPath(ctx, points, layer.closed);
-    if (layer.closed) {
-      ctx.fillStyle = layer.fillColor;
-      ctx.fill();
-    }
-    ctx.lineWidth = layer.strokeWidth;
-    ctx.strokeStyle = layer.strokeColor;
-    ctx.stroke();
+    renderBlobShape(ctx, layer, points);
     return;
   }
-  if (layer.pathKind === 'brush' || layer.pathKind === 'arrow') {
-    drawSmoothPath(ctx, points, layer.closed && layer.pathKind !== 'arrow');
-    ctx.lineWidth = layer.strokeWidth;
-    ctx.strokeStyle = layer.strokeColor;
-    ctx.stroke();
-    if (layer.pathKind === 'arrow' && points.length > 1) {
+  if (layer.pathKind === 'brush') {
+    renderRoughBrush(ctx, points, layer);
+    if (layer.arrowStyle && layer.arrowStyle !== 'none' && points.length > 1) {
       const tail = points[points.length - 2];
       const head = points[points.length - 1];
-      const angle = Math.atan2(head.y - tail.y, head.x - tail.x);
-      const size = Math.max(10, layer.strokeWidth * 2.6);
-      ctx.beginPath();
-      ctx.moveTo(head.x, head.y);
-      ctx.lineTo(head.x - Math.cos(angle - 0.55) * size, head.y - Math.sin(angle - 0.55) * size);
-      ctx.lineTo(head.x - Math.cos(angle + 0.55) * size, head.y - Math.sin(angle + 0.55) * size);
-      ctx.closePath();
-      ctx.fillStyle = layer.strokeColor;
-      ctx.fill();
+      drawArrowHead(ctx, head, tail, layer.arrowStyle, layer.strokeColor, Math.max(10, layer.strokeWidth * 2.5));
     }
     return;
   }
@@ -1809,7 +1911,7 @@ function removePathPoint(layer, pointIndex) {
 
 function setTool(tool) {
   state.tool = tool;
-  const buttons = ['btn-select', 'btn-lasso', 'btn-rectcrop', 'btn-text', 'btn-brush', 'btn-blob', 'btn-arrow', 'btn-pathtext'];
+  const buttons = ['btn-select', 'btn-lasso', 'btn-rectcrop', 'btn-text', 'btn-brush', 'btn-blob', 'btn-pathtext'];
   for (let i = 0; i < buttons.length; i++) document.getElementById(buttons[i]).classList.remove('active');
   const map = {
     select: 'btn-select',
@@ -1818,7 +1920,6 @@ function setTool(tool) {
     text: 'btn-text',
     brush: 'btn-brush',
     blob: 'btn-blob',
-    arrow: 'btn-arrow',
     pathtext: 'btn-pathtext'
   };
   document.getElementById(map[tool]).classList.add('active');
@@ -1950,11 +2051,16 @@ function syncInspector() {
     document.getElementById('path-kind').value = active.pathKind;
     document.getElementById('path-stroke').value = active.strokeWidth;
     document.getElementById('path-smooth').value = active.smooth;
+    document.getElementById('path-loose').value = active.loose || 0;
+    document.getElementById('path-rough').value = active.rough || 0;
     document.getElementById('path-spacing').value = active.spacing || 0;
+    document.getElementById('path-arrow-style').value = active.arrowStyle || 'none';
     document.getElementById('path-stroke-color').value = active.strokeColor;
     document.getElementById('path-fill-color').value = active.fillColor;
     syncRangeValue('path-stroke-val', active.strokeWidth);
     syncRangeValue('path-smooth-val', active.smooth);
+    syncRangeValue('path-loose-val', active.loose || 0);
+    syncRangeValue('path-rough-val', active.rough || 0);
     syncRangeValue('path-spacing-val', active.spacing || 0);
   }
 }
@@ -2028,7 +2134,7 @@ canvas.addEventListener('mousedown', function (e) {
   } else if (state.tool === 'text') {
     addTextLayer(p.x, p.y);
     setTool('select');
-  } else if (state.tool === 'brush' || state.tool === 'blob' || state.tool === 'arrow' || state.tool === 'pathtext') {
+  } else if (state.tool === 'brush' || state.tool === 'blob' || state.tool === 'pathtext') {
     drawPreview = { kind: state.tool, points: [{ x: p.x, y: p.y }] };
   }
 });
@@ -2128,7 +2234,6 @@ document.getElementById('btn-rectcrop').addEventListener('click', function () { 
 document.getElementById('btn-text').addEventListener('click', function () { setTool('text'); });
 document.getElementById('btn-brush').addEventListener('click', function () { setTool('brush'); });
 document.getElementById('btn-blob').addEventListener('click', function () { setTool('blob'); });
-document.getElementById('btn-arrow').addEventListener('click', function () { setTool('arrow'); });
 document.getElementById('btn-pathtext').addEventListener('click', function () { setTool('pathtext'); });
 document.getElementById('btn-upload').addEventListener('click', function () { document.getElementById('file-input').click(); });
 document.getElementById('btn-credit').addEventListener('click', addCreditLayer);
@@ -2278,7 +2383,11 @@ document.getElementById('path-kind').addEventListener('change', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
   active.pathKind = this.value;
-  if (this.value === 'blob') active.closed = true;
+  if (this.value === 'blob') {
+    active.closed = true;
+    active.strokeWidth = Math.max(active.strokeWidth, 20);
+    active.loose = Math.max(active.loose || 0, 18);
+  }
   if (this.value !== 'textpath') active.showPath = true;
   syncInspector();
   render();
@@ -2302,6 +2411,24 @@ document.getElementById('path-smooth').addEventListener('input', function () {
   render();
 });
 document.getElementById('path-smooth').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('path-loose').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.loose = Number(this.value);
+  syncRangeValue('path-loose-val', this.value);
+  render();
+});
+document.getElementById('path-loose').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('path-rough').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.rough = Number(this.value);
+  syncRangeValue('path-rough-val', this.value);
+  render();
+});
+document.getElementById('path-rough').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('path-spacing').addEventListener('input', function () {
   const active = getActiveLayer();
@@ -2327,6 +2454,14 @@ document.getElementById('path-fill-color').addEventListener('input', function ()
   render();
 });
 document.getElementById('path-fill-color').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('path-arrow-style').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.arrowStyle = this.value;
+  render();
+  pushHistorySnapshot();
+});
 
 document.getElementById('btn-path-toggle-close').addEventListener('click', function () {
   const active = getActiveLayer();
@@ -2409,9 +2544,15 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 't' || e.key === 'T') setTool('text');
   if (e.key === 'b' || e.key === 'B') setTool('brush');
   if (e.key === 'g' || e.key === 'G') setTool('blob');
-  if (e.key === 'a' || e.key === 'A') setTool('arrow');
   if (e.key === 'p' || e.key === 'P') setTool('pathtext');
-  if ((e.key === 'Delete' || e.key === 'Backspace') && state.activeId) deleteLayer(state.activeId);
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.activeId) {
+    const active = getActiveLayer();
+    if (active && active.type === 'path' && selectedPathPoint && selectedPathPoint.layerId === active.id) {
+      removePathPoint(active, selectedPathPoint.pointIndex);
+      return;
+    }
+    deleteLayer(state.activeId);
+  }
   if (e.key === 'Escape') {
     state.cropPreview = null;
     setTool('select');
