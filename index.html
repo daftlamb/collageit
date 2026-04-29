@@ -498,6 +498,9 @@ input[type="range"]{
         <input type="range" id="img-tint" min="-100" max="100" value="0">
         <div class="row"><label>Print Blur</label><span class="value" id="blur-val">0</span></div>
         <input type="range" id="img-blur" min="0" max="18" value="0">
+        <div class="row"><label>Edge Stroke</label><span class="value" id="edge-val">0</span></div>
+        <input type="range" id="img-edge" min="0" max="100" value="0">
+        <input class="field" id="img-edge-color" type="color" value="#111111">
         <div class="row"><label>Border</label><span class="value" id="img-border-val">0</span></div>
         <input type="range" id="img-border" min="0" max="32" value="0">
         <input class="field" id="img-border-color" type="color" value="#111111">
@@ -574,6 +577,7 @@ input[type="range"]{
             <option value="off">Clean Brush</option>
             <option value="rough">Hand-drawn Brush</option>
           </select>
+          <label class="subtle"><input id="path-fill-enabled" type="checkbox" checked> Fill</label>
           <div class="row"><label>Spacing</label><span class="value" id="path-spacing-val">0</span></div>
           <input type="range" id="path-spacing" min="-10" max="40" value="0">
           <select class="field font-select" id="path-arrow-style">
@@ -610,6 +614,7 @@ input[type="range"]{
             <option value="off">Clean Stroke</option>
             <option value="rough">Rough Stroke</option>
           </select>
+          <label class="subtle"><input id="shape-fill-enabled" type="checkbox" checked> Fill</label>
           <div class="inline-actions">
             <input class="field" id="shape-stroke-color" type="color" value="#111111">
             <input class="field" id="shape-fill-color" type="color" value="#ffffff">
@@ -634,7 +639,7 @@ input[type="range"]{
 
 <script>
 const PAPER_SWATCHES = ['#f5f0e8','#f0ece5','#efe7da','#f4f1ea','#ece5d7','#f7f3ec'];
-const DEFAULT_IMAGE_EFFECTS = { grain: 0, fade: 0, tint: 0, blur: 0 };
+const DEFAULT_IMAGE_EFFECTS = { grain: 0, fade: 0, tint: 0, blur: 0, edge: 0, edgeColor: '#111111' };
 const state = {
   layers: [],
   activeId: null,
@@ -708,6 +713,7 @@ function defaultShapeLayer(kind) {
     strokeWidth: 4,
     rough: 20,
     roughStyle: 'off',
+    fillEnabled: true,
     strokeColor: '#111111',
     fillColor: kind === 'grid' ? '#ffffff' : '#ffffff'
   };
@@ -734,6 +740,7 @@ function defaultPathLayer(kind, points, name) {
     loose: kind === 'blob' ? 24 : 14,
     rough: kind === 'brush' ? 18 : 8,
     roughStyle: kind === 'brush' ? 'rough' : 'off',
+    fillEnabled: kind === 'blob',
     strokeColor: '#111111',
     fillColor: kind === 'blob' ? '#d98f37' : '#d9b98b',
     spacing: 0,
@@ -774,7 +781,9 @@ function cloneEffects(fx) {
     grain: Number((fx && fx.grain) || 0),
     fade: Number((fx && fx.fade) || 0),
     tint: Number((fx && fx.tint) || 0),
-    blur: Number((fx && fx.blur) || 0)
+    blur: Number((fx && fx.blur) || 0),
+    edge: Number((fx && fx.edge) || 0),
+    edgeColor: (fx && fx.edgeColor) || '#111111'
   };
 }
 
@@ -931,6 +940,7 @@ function makeSnapshot() {
         plain.strokeWidth = layer.strokeWidth;
         plain.rough = layer.rough;
         plain.roughStyle = layer.roughStyle;
+        plain.fillEnabled = layer.fillEnabled !== false;
         plain.strokeColor = layer.strokeColor;
         plain.fillColor = layer.fillColor;
       } else if (layer.type === 'path') {
@@ -942,6 +952,7 @@ function makeSnapshot() {
         plain.loose = layer.loose;
         plain.rough = layer.rough;
         plain.roughStyle = layer.roughStyle;
+        plain.fillEnabled = layer.fillEnabled !== false;
         plain.strokeColor = layer.strokeColor;
         plain.fillColor = layer.fillColor;
         plain.spacing = layer.spacing;
@@ -1033,6 +1044,7 @@ function hydrateLayer(plain) {
     strokeWidth: plain.strokeWidth || 0,
     rough: plain.rough || 0,
     roughStyle: plain.roughStyle || 'off',
+    fillEnabled: plain.fillEnabled !== false,
     strokeColor: plain.strokeColor || '#111111',
     fillColor: plain.fillColor || '#ffffff'
   });
@@ -1055,6 +1067,7 @@ function hydrateLayer(plain) {
     loose: plain.loose || 0,
     rough: plain.rough || 0,
     roughStyle: plain.roughStyle || (plain.pathKind === 'brush' ? 'rough' : 'off'),
+    fillEnabled: plain.fillEnabled !== false,
     strokeColor: plain.strokeColor,
     fillColor: plain.fillColor,
     spacing: plain.spacing || 0,
@@ -1484,13 +1497,15 @@ function renderBlobShape(ctxRef, layer, points) {
   const noiseFreq = 0.16 + rough * 0.22;
   const chains = chainMetaballSegments(marchMetaball(field, cols, rows, step, threshold, noiseDistort, noiseFreq));
   if (!chains.length) return;
-  octx.fillStyle = layer.fillColor;
-  octx.beginPath();
-  chains.forEach(function (chain) {
-    smoothPathCtx(octx, chain);
-    octx.closePath();
-  });
-  octx.fill('evenodd');
+  if (layer.fillEnabled !== false) {
+    octx.fillStyle = layer.fillColor;
+    octx.beginPath();
+    chains.forEach(function (chain) {
+      smoothPathCtx(octx, chain);
+      octx.closePath();
+    });
+    octx.fill('evenodd');
+  }
   if (rough > 0.02) {
     const imageData = octx.getImageData(0, 0, off.width, off.height);
     const data = imageData.data;
@@ -2008,21 +2023,68 @@ function gaussianNoise() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
-function getProcessedImage(layer) {
+function hexToRgb(hex) {
+  const value = String(hex || '#111111').replace('#', '');
+  const normalized = value.length === 3 ? value.split('').map(function (ch) { return ch + ch; }).join('') : value;
+  const num = parseInt(normalized, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255
+  };
+}
+
+function applyEdgeOverlay(octx, imageData, targetW, targetH, strength, colorHex) {
+  if (strength <= 0) return;
+  const src = imageData.data;
+  const edgeData = octx.createImageData(targetW, targetH);
+  const out = edgeData.data;
+  const rgb = hexToRgb(colorHex);
+  const threshold = 18 + (1 - strength) * 72;
+  for (let y = 1; y < targetH - 1; y++) {
+    for (let x = 1; x < targetW - 1; x++) {
+      const idx = (y * targetW + x) * 4;
+      const tl = ((y - 1) * targetW + (x - 1)) * 4;
+      const tc = ((y - 1) * targetW + x) * 4;
+      const tr = ((y - 1) * targetW + (x + 1)) * 4;
+      const ml = (y * targetW + (x - 1)) * 4;
+      const mr = (y * targetW + (x + 1)) * 4;
+      const bl = ((y + 1) * targetW + (x - 1)) * 4;
+      const bc = ((y + 1) * targetW + x) * 4;
+      const br = ((y + 1) * targetW + (x + 1)) * 4;
+      const lum = function (i) { return src[i] * 0.299 + src[i + 1] * 0.587 + src[i + 2] * 0.114; };
+      const gx = -lum(tl) + lum(tr) - 2 * lum(ml) + 2 * lum(mr) - lum(bl) + lum(br);
+      const gy = -lum(tl) - 2 * lum(tc) - lum(tr) + lum(bl) + 2 * lum(bc) + lum(br);
+      const mag = Math.sqrt(gx * gx + gy * gy);
+      if (mag <= threshold) continue;
+      const alpha = clamp(((mag - threshold) / (180 - threshold)) * (0.3 + strength * 0.7), 0, 1);
+      out[idx] = rgb.r;
+      out[idx + 1] = rgb.g;
+      out[idx + 2] = rgb.b;
+      out[idx + 3] = Math.round(alpha * 255);
+    }
+  }
+  octx.putImageData(edgeData, 0, 0);
+}
+
+function getProcessedImage(layer, renderScale) {
   const fx = cloneEffects(layer.effects);
+  const scale = renderScale || 1;
   const key = [
     layer.src,
-    Math.round(layer.w),
-    Math.round(layer.h),
+    Math.round(layer.w * scale),
+    Math.round(layer.h * scale),
     fx.grain,
     fx.fade,
     fx.tint,
-    fx.blur
+    fx.blur,
+    fx.edge,
+    fx.edgeColor
   ].join('|');
   if (layer._cacheKey === key && layer._cacheCanvas) return layer._cacheCanvas;
 
-  const targetW = Math.max(1, Math.round(layer.w));
-  const targetH = Math.max(1, Math.round(layer.h));
+  const targetW = Math.max(1, Math.round(layer.w * scale));
+  const targetH = Math.max(1, Math.round(layer.h * scale));
   const off = document.createElement('canvas');
   off.width = targetW;
   off.height = targetH;
@@ -2034,7 +2096,7 @@ function getProcessedImage(layer) {
     blurCanvas.width = targetW;
     blurCanvas.height = targetH;
     const bctx = blurCanvas.getContext('2d');
-    bctx.filter = 'blur(' + (fx.blur * 0.6).toFixed(2) + 'px)';
+    bctx.filter = 'blur(' + (fx.blur * 0.6 * scale).toFixed(2) + 'px)';
     bctx.drawImage(off, 0, 0);
     bctx.filter = 'none';
     octx.clearRect(0, 0, targetW, targetH);
@@ -2086,27 +2148,33 @@ function getProcessedImage(layer) {
     octx.putImageData(grainData, 0, 0);
   }
 
+  if (fx.edge > 0) {
+    const edgeSource = octx.getImageData(0, 0, targetW, targetH);
+    applyEdgeOverlay(octx, edgeSource, targetW, targetH, fx.edge / 100, fx.edgeColor || '#111111');
+  }
+
   layer._cacheKey = key;
   layer._cacheCanvas = off;
   return off;
 }
 
-function renderTextLayer(layer) {
+function renderTextLayer(layer, ctxRef) {
+  const drawCtx = ctxRef || ctx;
   const lines = String(layer.text || '').split('\n');
   measureCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
-  ctx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
-  ctx.fillStyle = layer.color;
-  ctx.textBaseline = 'top';
+  drawCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
+  drawCtx.fillStyle = layer.color;
+  drawCtx.textBaseline = 'top';
   if (layer.role === 'credit') {
     if (layer.bgColor) {
-      ctx.fillStyle = layer.bgColor;
-      ctx.fillRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
+      drawCtx.fillStyle = layer.bgColor;
+      drawCtx.fillRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
     }
-    ctx.fillStyle = layer.color;
+    drawCtx.fillStyle = layer.color;
   }
   if (layer.role === 'sticker') {
-    renderStickerBackground(layer);
-    ctx.fillStyle = layer.color;
+    renderStickerBackground(layer, drawCtx);
+    drawCtx.fillStyle = layer.color;
   }
   const leftPad = layer.paddingX || 0;
   const topPad = layer.paddingY || 0;
@@ -2120,12 +2188,12 @@ function renderTextLayer(layer) {
       x = layer.w / 2 - lineWidth - leftPad;
     }
     if (!layer.letterSpacing) {
-      ctx.fillText(line, x, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
+      drawCtx.fillText(line, x, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
     } else {
       let cursor = x;
       for (let c = 0; c < line.length; c++) {
         const ch = line[c];
-        ctx.fillText(ch, cursor, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
+        drawCtx.fillText(ch, cursor, -layer.h / 2 + topPad + i * layer.fontSize * layer.lineHeight);
         cursor += measureCtx.measureText(ch).width + layer.letterSpacing;
       }
     }
@@ -2185,61 +2253,65 @@ function buildStickerPath(layer) {
   return path;
 }
 
-function renderStickerBackground(layer) {
+function renderStickerBackground(layer, ctxRef) {
+  const drawCtx = ctxRef || ctx;
   const stickerPath = buildStickerPath(layer);
   if (layer.stickerShadow !== 'none') {
-    ctx.save();
-    ctx.shadowColor = 'rgba(22,15,8,0.14)';
-    ctx.shadowBlur = 16;
-    ctx.shadowOffsetY = 6;
-    ctx.fillStyle = layer.bgColor || '#ffffff';
-    ctx.fill(stickerPath);
-    ctx.restore();
+    drawCtx.save();
+    drawCtx.shadowColor = 'rgba(22,15,8,0.14)';
+    drawCtx.shadowBlur = 16;
+    drawCtx.shadowOffsetY = 6;
+    drawCtx.fillStyle = layer.bgColor || '#ffffff';
+    drawCtx.fill(stickerPath);
+    drawCtx.restore();
   }
-  ctx.save();
-  ctx.fillStyle = layer.bgColor || '#ffffff';
-  ctx.fill(stickerPath);
-  ctx.clip(stickerPath);
+  drawCtx.save();
+  drawCtx.fillStyle = layer.bgColor || '#ffffff';
+  drawCtx.fill(stickerPath);
+  drawCtx.clip(stickerPath);
   const tex = getPaperTexture(layer.bgColor || '#fbfaf5');
-  ctx.globalAlpha = 0.32;
-  ctx.drawImage(tex, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
-  ctx.restore();
-  ctx.save();
-  ctx.strokeStyle = 'rgba(25,19,13,0.12)';
-  ctx.lineWidth = 1;
-  ctx.stroke(stickerPath);
-  ctx.restore();
+  drawCtx.globalAlpha = 0.32;
+  drawCtx.drawImage(tex, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+  drawCtx.restore();
+  drawCtx.save();
+  drawCtx.strokeStyle = 'rgba(25,19,13,0.12)';
+  drawCtx.lineWidth = 1;
+  drawCtx.stroke(stickerPath);
+  drawCtx.restore();
 }
 
-function renderShapeLayer(layer) {
-  ctx.save();
+function renderShapeLayer(layer, ctxRef) {
+  const drawCtx = ctxRef || ctx;
+  drawCtx.save();
   const x = -layer.w / 2;
   const y = -layer.h / 2;
   const w = layer.w;
   const h = layer.h;
   if (layer.shapeKind === 'circle') {
-    ctx.beginPath();
-    ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
-    if (layer.fillColor && layer.fillColor !== 'transparent') {
-      ctx.fillStyle = layer.fillColor;
-      ctx.fill();
+    drawCtx.beginPath();
+    drawCtx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+    if (layer.fillEnabled !== false && layer.fillColor && layer.fillColor !== 'transparent') {
+      drawCtx.fillStyle = layer.fillColor;
+      drawCtx.fill();
     }
     if (layer.strokeWidth > 0) renderShapeStroke(layer, function (target) {
       target.beginPath();
       target.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
-    });
+    }, 1, drawCtx);
   } else if (layer.shapeKind === 'square') {
-    if (layer.fillColor && layer.fillColor !== 'transparent') {
-      ctx.fillStyle = layer.fillColor;
-      ctx.fillRect(x, y, w, h);
+    if (layer.fillEnabled !== false && layer.fillColor && layer.fillColor !== 'transparent') {
+      drawCtx.fillStyle = layer.fillColor;
+      drawCtx.fillRect(x, y, w, h);
     }
     if (layer.strokeWidth > 0) renderShapeStroke(layer, function (target) {
       target.beginPath();
       target.rect(x, y, w, h);
-    });
+    }, 1, drawCtx);
   } else if (layer.shapeKind === 'grid') {
-    ctx.fillStyle = layer.fillColor;
-    ctx.fillRect(x, y, w, h);
+    if (layer.fillEnabled !== false && layer.fillColor && layer.fillColor !== 'transparent') {
+      drawCtx.fillStyle = layer.fillColor;
+      drawCtx.fillRect(x, y, w, h);
+    }
     const cols = 6, rows = 6;
     for (let c = 0; c <= cols; c++) {
       const gx = x + (w / cols) * c;
@@ -2247,7 +2319,7 @@ function renderShapeLayer(layer) {
         target.beginPath();
         target.moveTo(gx, y);
         target.lineTo(gx, y + h);
-      }, 1);
+      }, 1, drawCtx);
     }
     for (let r = 0; r <= rows; r++) {
       const gy = y + (h / rows) * r;
@@ -2255,76 +2327,79 @@ function renderShapeLayer(layer) {
         target.beginPath();
         target.moveTo(x, gy);
         target.lineTo(x + w, gy);
-      }, 1);
+      }, 1, drawCtx);
     }
     renderShapeStroke(layer, function (target) {
       target.beginPath();
       target.rect(x, y, w, h);
-    });
+    }, 1, drawCtx);
   }
-  ctx.restore();
+  drawCtx.restore();
 }
 
-function renderShapeStroke(layer, drawFn, widthScale) {
+function renderShapeStroke(layer, drawFn, widthScale, ctxRef) {
+  const drawCtx = ctxRef || ctx;
   const scale = widthScale || 1;
-  drawFn(ctx);
-  ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale);
-  ctx.strokeStyle = layer.strokeColor;
-  ctx.stroke();
+  drawFn(drawCtx);
+  drawCtx.lineWidth = Math.max(0.6, layer.strokeWidth * scale);
+  drawCtx.strokeStyle = layer.strokeColor;
+  drawCtx.stroke();
   if (layer.roughStyle === 'rough' && layer.rough > 0) {
     const passes = layer.rough > 65 ? 4 : 3;
     for (let i = 0; i < passes; i++) {
-      ctx.save();
-      ctx.globalAlpha = 0.16;
-      ctx.translate((Math.random() - 0.5) * layer.rough * 0.04, (Math.random() - 0.5) * layer.rough * 0.04);
-      ctx.rotate((Math.random() - 0.5) * layer.rough * 0.00045);
-      drawFn(ctx);
-      ctx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.84 + i * 0.04));
-      ctx.strokeStyle = layer.strokeColor;
-      ctx.stroke();
-      ctx.restore();
+      drawCtx.save();
+      drawCtx.globalAlpha = 0.16;
+      drawCtx.translate((Math.random() - 0.5) * layer.rough * 0.04, (Math.random() - 0.5) * layer.rough * 0.04);
+      drawCtx.rotate((Math.random() - 0.5) * layer.rough * 0.00045);
+      drawFn(drawCtx);
+      drawCtx.lineWidth = Math.max(0.6, layer.strokeWidth * scale * (0.84 + i * 0.04));
+      drawCtx.strokeStyle = layer.strokeColor;
+      drawCtx.stroke();
+      drawCtx.restore();
     }
   }
 }
 
-function renderPathLayer(layer) {
+function renderPathLayer(layer, ctxRef) {
+  const drawCtx = ctxRef || ctx;
   const points = getRenderablePathPoints(layer);
   if (!points.length) return;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
+  drawCtx.lineJoin = 'round';
+  drawCtx.lineCap = 'round';
   if (layer.pathKind === 'blob') {
-    renderBlobShape(ctx, layer, points);
+    renderBlobShape(drawCtx, layer, points);
     return;
   }
   if (layer.pathKind === 'brush') {
-    renderRoughBrush(ctx, points, layer);
+    renderRoughBrush(drawCtx, points, layer);
     if (layer.arrowStyle && layer.arrowStyle !== 'none' && points.length > 1) {
       const tail = points[points.length - 2];
       const head = points[points.length - 1];
-      drawArrowHead(ctx, head, tail, layer.arrowStyle, layer.strokeColor, Math.max(10, layer.strokeWidth * 2.5));
+      drawArrowHead(drawCtx, head, tail, layer.arrowStyle, layer.strokeColor, Math.max(10, layer.strokeWidth * 2.5));
     }
     return;
   }
   if (layer.pathKind === 'textpath') {
     if (layer.showPath) {
-      drawSmoothPath(ctx, points, layer.closed);
-      ctx.lineWidth = layer.strokeWidth;
-      ctx.strokeStyle = layer.strokeColor;
-      ctx.globalAlpha = 0.55;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+      drawSmoothPath(drawCtx, points, layer.closed);
+      drawCtx.lineWidth = layer.strokeWidth;
+      drawCtx.strokeStyle = layer.strokeColor;
+      drawCtx.globalAlpha = 0.55;
+      drawCtx.stroke();
+      drawCtx.globalAlpha = 1;
     }
-    renderTextOnPath(layer);
+    renderTextOnPath(layer, drawCtx);
   }
 }
 
-function renderTextOnPath(layer) {
+function renderTextOnPath(layer, ctxRef) {
+  const drawCtx = ctxRef || ctx;
   const text = String(layer.text || '').trim();
   if (!text || !layer.points || layer.points.length < 2) return;
-  ctx.fillStyle = layer.color;
+  drawCtx.fillStyle = layer.color;
   measureCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
-  ctx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
-  ctx.textBaseline = 'middle';
+  drawCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
+  drawCtx.textBaseline = 'middle';
   const chars = text.split('');
   let cursor = 0;
   const pathPoints = getRenderablePathPoints(layer);
@@ -2332,11 +2407,11 @@ function renderTextOnPath(layer) {
     const ch = chars[i] === ' ' ? '\u00A0' : chars[i];
     const chWidth = measureCtx.measureText(ch).width + layer.spacing + Math.max(0, layer.letterSpacing || 0);
     const sample = samplePathAt(pathPoints, false, cursor + chWidth * 0.5);
-    ctx.save();
-    ctx.translate(sample.x, sample.y);
-    ctx.rotate(sample.angle);
-    ctx.fillText(ch, -chWidth * 0.5, 0);
-    ctx.restore();
+    drawCtx.save();
+    drawCtx.translate(sample.x, sample.y);
+    drawCtx.rotate(sample.angle);
+    drawCtx.fillText(ch, -chWidth * 0.5, 0);
+    drawCtx.restore();
     cursor += chWidth;
   }
 }
@@ -2427,45 +2502,53 @@ function renderDrawPreview() {
   ctx.restore();
 }
 
-function render() {
-  ctx.clearRect(0, 0, state.canvasW, state.canvasH);
-  ctx.fillStyle = state.paperColor;
-  ctx.fillRect(0, 0, state.canvasW, state.canvasH);
-  ctx.save();
-  ctx.globalAlpha = 0.42;
-  ctx.drawImage(getPaperTexture(state.paperColor), 0, 0, state.canvasW, state.canvasH);
-  ctx.restore();
-
+function renderScene(targetCtx, renderScale) {
+  const drawCtx = targetCtx || ctx;
+  const imageScale = renderScale || 1;
+  drawCtx.clearRect(0, 0, state.canvasW, state.canvasH);
+  drawCtx.fillStyle = state.paperColor;
+  drawCtx.fillRect(0, 0, state.canvasW, state.canvasH);
+  drawCtx.save();
+  drawCtx.globalAlpha = 0.42;
+  drawCtx.drawImage(getPaperTexture(state.paperColor), 0, 0, state.canvasW, state.canvasH);
+  drawCtx.restore();
   for (let i = 0; i < state.layers.length; i++) {
     const layer = state.layers[i];
-    ctx.save();
-    ctx.translate(layer.x + layer.w / 2, layer.y + layer.h / 2);
-    ctx.rotate(layer.rot);
-    if (layer.clip && layer.clip.length > 2) applyClipPath(ctx, layer.clip);
+    drawCtx.save();
+    drawCtx.translate(layer.x + layer.w / 2, layer.y + layer.h / 2);
+    drawCtx.rotate(layer.rot);
+    if (layer.clip && layer.clip.length > 2) applyClipPath(drawCtx, layer.clip);
     if (layer.type === 'image') {
-      const imgCanvas = getProcessedImage(layer);
-      ctx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+      const imgCanvas = getProcessedImage(layer, imageScale);
+      drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
       if (layer.borderWidth > 0) {
-        ctx.lineWidth = layer.borderWidth;
-        ctx.strokeStyle = layer.borderColor || '#111111';
+        drawCtx.lineWidth = layer.borderWidth;
+        drawCtx.strokeStyle = layer.borderColor || '#111111';
         if (layer.clip && layer.clip.length > 2) {
-          ctx.beginPath();
-          ctx.moveTo(layer.clip[0].x, layer.clip[0].y);
-          for (let i = 1; i < layer.clip.length; i++) ctx.lineTo(layer.clip[i].x, layer.clip[i].y);
-          ctx.closePath();
-          ctx.stroke();
+          drawCtx.beginPath();
+          drawCtx.moveTo(layer.clip[0].x, layer.clip[0].y);
+          for (let j = 1; j < layer.clip.length; j++) drawCtx.lineTo(layer.clip[j].x, layer.clip[j].y);
+          drawCtx.closePath();
+          drawCtx.stroke();
         } else {
-          ctx.strokeRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
+          drawCtx.strokeRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
         }
       }
     } else if (layer.type === 'text') {
-      renderTextLayer(layer);
+      renderTextLayer(layer, drawCtx);
     } else if (layer.type === 'shape') {
-      renderShapeLayer(layer);
+      renderShapeLayer(layer, drawCtx);
     } else if (layer.type === 'path') {
-      renderPathLayer(layer);
+      renderPathLayer(layer, drawCtx);
     }
-    ctx.restore();
+    drawCtx.restore();
+  }
+}
+
+function render() {
+  renderScene(ctx, 1);
+  for (let i = 0; i < state.layers.length; i++) {
+    const layer = state.layers[i];
     if (layer.id === state.activeId) renderSelection(layer);
   }
 
@@ -2741,12 +2824,15 @@ function syncInspector() {
     document.getElementById('img-fade').value = fx.fade;
     document.getElementById('img-tint').value = fx.tint;
     document.getElementById('img-blur').value = fx.blur;
+    document.getElementById('img-edge').value = fx.edge || 0;
+    document.getElementById('img-edge-color').value = fx.edgeColor || '#111111';
     document.getElementById('img-border').value = active.borderWidth || 0;
     document.getElementById('img-border-color').value = active.borderColor || '#111111';
     syncRangeValue('grain-val', fx.grain);
     syncRangeValue('fade-val', fx.fade);
     syncRangeValue('tint-val', fx.tint);
     syncRangeValue('blur-val', fx.blur);
+    syncRangeValue('edge-val', fx.edge || 0);
     syncRangeValue('img-border-val', active.borderWidth || 0);
   } else if (active.type === 'text' || (active.type === 'path' && active.pathKind === 'textpath')) {
     document.getElementById('text-content').value = active.text;
@@ -2771,6 +2857,7 @@ function syncInspector() {
     document.getElementById('shape-stroke').value = active.strokeWidth || 0;
     document.getElementById('shape-rough').value = active.rough || 0;
     document.getElementById('shape-rough-style').value = active.roughStyle || 'off';
+    document.getElementById('shape-fill-enabled').checked = active.fillEnabled !== false;
     document.getElementById('shape-stroke-color').value = active.strokeColor || '#111111';
     document.getElementById('shape-fill-color').value = active.fillColor || '#ffffff';
     syncRangeValue('shape-stroke-val', active.strokeWidth || 0);
@@ -2783,6 +2870,7 @@ function syncInspector() {
     document.getElementById('path-loose').value = active.loose || 0;
     document.getElementById('path-rough').value = active.rough || 0;
     document.getElementById('path-rough-style').value = active.roughStyle || (active.pathKind === 'brush' ? 'rough' : 'off');
+    document.getElementById('path-fill-enabled').checked = active.fillEnabled !== false;
     document.getElementById('path-spacing').value = active.spacing || 0;
     document.getElementById('path-arrow-style').value = active.arrowStyle || 'none';
     document.getElementById('path-stroke-color').value = active.strokeColor;
@@ -3083,12 +3171,13 @@ document.getElementById('img-crop-mode').addEventListener('change', function () 
   }
 });
 
-['img-grain', 'img-fade', 'img-tint', 'img-blur'].forEach(function (id) {
+['img-grain', 'img-fade', 'img-tint', 'img-blur', 'img-edge'].forEach(function (id) {
   const map = {
     'img-grain': ['grain', 'grain-val'],
     'img-fade': ['fade', 'fade-val'],
     'img-tint': ['tint', 'tint-val'],
-    'img-blur': ['blur', 'blur-val']
+    'img-blur': ['blur', 'blur-val'],
+    'img-edge': ['edge', 'edge-val']
   };
   document.getElementById(id).addEventListener('input', function () {
     const active = getActiveLayer();
@@ -3100,6 +3189,15 @@ document.getElementById('img-crop-mode').addEventListener('change', function () 
   });
   document.getElementById(id).addEventListener('change', pushHistorySnapshot);
 });
+
+document.getElementById('img-edge-color').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'image') return;
+  active.effects.edgeColor = this.value;
+  active._cacheKey = null;
+  render();
+});
+document.getElementById('img-edge-color').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('img-border').addEventListener('input', function () {
   const active = getActiveLayer();
@@ -3299,6 +3397,14 @@ document.getElementById('path-fill-color').addEventListener('input', function ()
 });
 document.getElementById('path-fill-color').addEventListener('change', pushHistorySnapshot);
 
+document.getElementById('path-fill-enabled').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.fillEnabled = this.checked;
+  render();
+  pushHistorySnapshot();
+});
+
 document.getElementById('path-arrow-style').addEventListener('change', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
@@ -3359,6 +3465,14 @@ document.getElementById('shape-fill-color').addEventListener('input', function (
 });
 document.getElementById('shape-fill-color').addEventListener('change', pushHistorySnapshot);
 
+document.getElementById('shape-fill-enabled').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.fillEnabled = this.checked;
+  render();
+  pushHistorySnapshot();
+});
+
 document.getElementById('btn-path-toggle-close').addEventListener('click', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
@@ -3406,12 +3520,15 @@ document.getElementById('btn-export').addEventListener('click', function () {
   render();
   const scale = Number(document.getElementById('export-scale-select').value || 1);
   const outCanvas = document.createElement('canvas');
-  outCanvas.width = canvas.width * scale;
-  outCanvas.height = canvas.height * scale;
+  outCanvas.width = state.canvasW * scale;
+  outCanvas.height = state.canvasH * scale;
   const outCtx = outCanvas.getContext('2d');
   outCtx.imageSmoothingEnabled = true;
   outCtx.imageSmoothingQuality = 'high';
-  outCtx.drawImage(canvas, 0, 0, outCanvas.width, outCanvas.height);
+  outCtx.save();
+  outCtx.scale(scale, scale);
+  renderScene(outCtx, scale);
+  outCtx.restore();
   outCanvas.toBlob(function (blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
