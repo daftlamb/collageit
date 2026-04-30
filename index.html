@@ -1246,6 +1246,57 @@ function updateTextMetrics(layer) {
   layer.h = Math.max(36, Math.round(lines.length * layer.fontSize * layer.lineHeight + 12));
 }
 
+function tokenizeWrapUnits(text) {
+  const tokens = [];
+  const parts = String(text || '').match(/([\u4e00-\u9fff]|[^\u4e00-\u9fff\s]+|\s+)/g) || [];
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i];
+    if (/^\s+$/.test(token)) tokens.push(' ');
+    else tokens.push(token);
+  }
+  return tokens;
+}
+
+function getWrappedStickerLines(layer) {
+  if (!layer || layer.type !== 'text' || layer.role !== 'sticker') return String(layer && layer.text || '').split('\n');
+  measureCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
+  const maxWidth = Math.max(40, layer.w - (layer.paddingX || 0) * 2 - 8);
+  const paragraphs = String(layer.text || '').split('\n');
+  const lines = [];
+  for (let p = 0; p < paragraphs.length; p++) {
+    const paragraph = paragraphs[p];
+    const tokens = tokenizeWrapUnits(paragraph);
+    let line = '';
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      const candidate = line + token;
+      const candidateWidth = getLineRenderWidth(candidate, layer);
+      if (candidateWidth <= maxWidth || !line) {
+        line = candidate;
+        continue;
+      }
+      lines.push(line.replace(/\s+$/g, ''));
+      line = token === ' ' ? '' : token.replace(/^\s+/g, '');
+      while (line && getLineRenderWidth(line, layer) > maxWidth) {
+        let splitAt = line.length - 1;
+        while (splitAt > 1 && getLineRenderWidth(line.slice(0, splitAt), layer) > maxWidth) splitAt--;
+        lines.push(line.slice(0, splitAt));
+        line = line.slice(splitAt).replace(/^\s+/g, '');
+      }
+    }
+    lines.push((line || '').replace(/\s+$/g, '') || ' ');
+  }
+  return lines.length ? lines : [' '];
+}
+
+function layoutStickerLayer(layer) {
+  if (!layer || layer.type !== 'text' || layer.role !== 'sticker') return;
+  const lines = getWrappedStickerLines(layer);
+  const textHeight = lines.length * layer.fontSize * layer.lineHeight;
+  const paddingY = layer.paddingY || 18;
+  layer.h = Math.max(120, Math.round(textHeight + paddingY * 2));
+}
+
 function layoutCreditLayer(layer) {
   if (!layer || layer.type !== 'text' || layer.role !== 'credit') return;
   const blockH = Math.max(34, Math.round(layer.fontSize * layer.lineHeight + 18));
@@ -1297,6 +1348,7 @@ function scaleLayerUniform(layer, factor) {
     layer.fontSize = Math.max(8, layer.fontSize * factor);
     layer.paddingX = Math.max(0, (layer.paddingX || 0) * factor);
     layer.paddingY = Math.max(0, (layer.paddingY || 0) * factor);
+    if (layer.role === 'sticker') layoutStickerLayer(layer);
     if (layer.role !== 'sticker' && layer.role !== 'credit') updateTextMetrics(layer);
   }
   if (layer.type === 'path' && layer.pathKind === 'textpath') {
@@ -1935,6 +1987,7 @@ function addStickerLayer() {
   layer.stickerShadow = 'soft';
   layer.w = 220;
   layer.h = 160;
+  layoutStickerLayer(layer);
   state.layers.push(layer);
   setSelection([layer.id], layer.id);
   updateLayerPanel();
@@ -2298,7 +2351,7 @@ function getProcessedImage(layer, renderScale) {
 
 function renderTextLayer(layer, ctxRef) {
   const drawCtx = ctxRef || ctx;
-  const lines = String(layer.text || '').split('\n');
+  const lines = layer.role === 'sticker' ? getWrappedStickerLines(layer) : String(layer.text || '').split('\n');
   measureCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
   drawCtx.font = layer.fontSize + 'px "' + layer.fontFamily + '"';
   drawCtx.fillStyle = layer.color;
@@ -3507,6 +3560,7 @@ document.getElementById('text-content').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.text = this.value || 'Text';
+  if (active.type === 'text' && active.role === 'sticker') layoutStickerLayer(active);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   render();
@@ -3517,6 +3571,7 @@ document.getElementById('text-font').addEventListener('change', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.fontFamily = this.value;
+  if (active.type === 'text' && active.role === 'sticker') layoutStickerLayer(active);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   render();
@@ -3527,6 +3582,7 @@ document.getElementById('text-size').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.fontSize = Number(this.value);
+  if (active.type === 'text' && active.role === 'sticker') layoutStickerLayer(active);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   syncRangeValue('text-size-val', this.value);
@@ -3538,6 +3594,7 @@ document.getElementById('text-leading').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.lineHeight = Number(this.value);
+  if (active.type === 'text' && active.role === 'sticker') layoutStickerLayer(active);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   if (active.type === 'text' && active.role === 'credit') layoutCreditLayer(active);
   syncRangeValue('text-leading-val', Number(this.value).toFixed(2));
@@ -3549,6 +3606,7 @@ document.getElementById('text-letter').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || (active.type !== 'text' && !(active.type === 'path' && active.pathKind === 'textpath'))) return;
   active.letterSpacing = Number(this.value);
+  if (active.type === 'text' && active.role === 'sticker') layoutStickerLayer(active);
   if (active.type === 'text' && active.role !== 'sticker' && active.role !== 'credit') updateTextMetrics(active);
   syncRangeValue('text-letter-val', this.value);
   render();
