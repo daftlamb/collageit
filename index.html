@@ -490,6 +490,14 @@ input[type="range"]{
           <option value="smooth">Free Crop: Smooth</option>
           <option value="polygon">Free Crop: Polygon</option>
         </select>
+        <select class="field font-select" id="img-blend-mode">
+          <option value="source-over">Blend: Normal</option>
+          <option value="multiply">Blend: Multiply</option>
+          <option value="overlay">Blend: Overlay</option>
+          <option value="soft-light">Blend: Soft Light</option>
+          <option value="hard-light">Blend: Hard Light</option>
+          <option value="screen">Blend: Screen</option>
+        </select>
         <div class="row"><label>Grain</label><span class="value" id="grain-val">0</span></div>
         <input type="range" id="img-grain" min="0" max="100" value="0">
         <div class="row"><label>Fade</label><span class="value" id="fade-val">0</span></div>
@@ -610,6 +618,10 @@ input[type="range"]{
           <input type="range" id="shape-stroke" min="0" max="32" value="4">
           <div class="row"><label>Rough</label><span class="value" id="shape-rough-val">20</span></div>
           <input type="range" id="shape-rough" min="0" max="100" value="20">
+          <div class="row"><label>Perspective</label><span class="value" id="shape-perspective-val">0</span></div>
+          <input type="range" id="shape-perspective" min="-100" max="100" value="0">
+          <div class="row"><label>Tilt</label><span class="value" id="shape-tilt-val">0</span></div>
+          <input type="range" id="shape-tilt" min="-100" max="100" value="0">
           <select class="field font-select" id="shape-rough-style">
             <option value="off">Clean Stroke</option>
             <option value="rough">Rough Stroke</option>
@@ -639,7 +651,7 @@ input[type="range"]{
 
 <script>
 const PAPER_SWATCHES = ['#f5f0e8','#f0ece5','#efe7da','#f4f1ea','#ece5d7','#f7f3ec'];
-const DEFAULT_IMAGE_EFFECTS = { grain: 0, fade: 0, tint: 0, blur: 0, edge: 0, edgeColor: '#111111' };
+const DEFAULT_IMAGE_EFFECTS = { grain: 0, fade: 0, tint: 0, blur: 0, edge: 0, edgeColor: '#111111', blend: 'source-over' };
 const state = {
   layers: [],
   activeId: null,
@@ -712,6 +724,8 @@ function defaultShapeLayer(kind) {
     shapeKind: kind,
     strokeWidth: 4,
     rough: 20,
+    perspective: 0,
+    tilt: 0,
     roughStyle: 'off',
     fillEnabled: true,
     strokeColor: '#111111',
@@ -783,7 +797,8 @@ function cloneEffects(fx) {
     tint: Number((fx && fx.tint) || 0),
     blur: Number((fx && fx.blur) || 0),
     edge: Number((fx && fx.edge) || 0),
-    edgeColor: (fx && fx.edgeColor) || '#111111'
+    edgeColor: (fx && fx.edgeColor) || '#111111',
+    blend: (fx && fx.blend) || 'source-over'
   };
 }
 
@@ -939,6 +954,8 @@ function makeSnapshot() {
         plain.shapeKind = layer.shapeKind;
         plain.strokeWidth = layer.strokeWidth;
         plain.rough = layer.rough;
+        plain.perspective = layer.perspective || 0;
+        plain.tilt = layer.tilt || 0;
         plain.roughStyle = layer.roughStyle;
         plain.fillEnabled = layer.fillEnabled !== false;
         plain.strokeColor = layer.strokeColor;
@@ -1043,6 +1060,8 @@ function hydrateLayer(plain) {
     shapeKind: plain.shapeKind || 'square',
     strokeWidth: plain.strokeWidth || 0,
     rough: plain.rough || 0,
+    perspective: plain.perspective || 0,
+    tilt: plain.tilt || 0,
     roughStyle: plain.roughStyle || 'off',
     fillEnabled: plain.fillEnabled !== false,
     strokeColor: plain.strokeColor || '#111111',
@@ -2280,6 +2299,39 @@ function renderStickerBackground(layer, ctxRef) {
   drawCtx.restore();
 }
 
+function lerpPoint(a, b, t) {
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t
+  };
+}
+
+function buildGridQuad(layer) {
+  const x = -layer.w / 2;
+  const y = -layer.h / 2;
+  const w = layer.w;
+  const h = layer.h;
+  const persp = Number(layer.perspective || 0) / 100;
+  const tilt = Number(layer.tilt || 0) / 100;
+  const inset = Math.abs(persp) * w * 0.34;
+  const skew = tilt * w * 0.26;
+  const lift = Math.abs(persp) * h * 0.24 + Math.abs(tilt) * h * 0.08;
+  if (persp >= 0) {
+    return {
+      tl: { x: x + inset + skew, y: y + lift },
+      tr: { x: x + w - inset + skew, y: y + lift },
+      br: { x: x + w, y: y + h },
+      bl: { x: x, y: y + h }
+    };
+  }
+  return {
+    tl: { x: x + skew, y: y },
+    tr: { x: x + w + skew, y: y },
+    br: { x: x + w - inset, y: y + h - lift },
+    bl: { x: x + inset, y: y + h - lift }
+  };
+}
+
 function renderShapeLayer(layer, ctxRef) {
   const drawCtx = ctxRef || ctx;
   drawCtx.save();
@@ -2308,30 +2360,45 @@ function renderShapeLayer(layer, ctxRef) {
       target.rect(x, y, w, h);
     }, 1, drawCtx);
   } else if (layer.shapeKind === 'grid') {
+    const quad = buildGridQuad(layer);
     if (layer.fillEnabled !== false && layer.fillColor && layer.fillColor !== 'transparent') {
+      drawCtx.beginPath();
+      drawCtx.moveTo(quad.tl.x, quad.tl.y);
+      drawCtx.lineTo(quad.tr.x, quad.tr.y);
+      drawCtx.lineTo(quad.br.x, quad.br.y);
+      drawCtx.lineTo(quad.bl.x, quad.bl.y);
+      drawCtx.closePath();
       drawCtx.fillStyle = layer.fillColor;
-      drawCtx.fillRect(x, y, w, h);
+      drawCtx.fill();
     }
     const cols = 6, rows = 6;
     for (let c = 0; c <= cols; c++) {
-      const gx = x + (w / cols) * c;
+      const t = c / cols;
+      const top = lerpPoint(quad.tl, quad.tr, t);
+      const bottom = lerpPoint(quad.bl, quad.br, t);
       renderShapeStroke(layer, function (target) {
         target.beginPath();
-        target.moveTo(gx, y);
-        target.lineTo(gx, y + h);
+        target.moveTo(top.x, top.y);
+        target.lineTo(bottom.x, bottom.y);
       }, 1, drawCtx);
     }
     for (let r = 0; r <= rows; r++) {
-      const gy = y + (h / rows) * r;
+      const t = r / rows;
+      const left = lerpPoint(quad.tl, quad.bl, t);
+      const right = lerpPoint(quad.tr, quad.br, t);
       renderShapeStroke(layer, function (target) {
         target.beginPath();
-        target.moveTo(x, gy);
-        target.lineTo(x + w, gy);
+        target.moveTo(left.x, left.y);
+        target.lineTo(right.x, right.y);
       }, 1, drawCtx);
     }
     renderShapeStroke(layer, function (target) {
       target.beginPath();
-      target.rect(x, y, w, h);
+      target.moveTo(quad.tl.x, quad.tl.y);
+      target.lineTo(quad.tr.x, quad.tr.y);
+      target.lineTo(quad.br.x, quad.br.y);
+      target.lineTo(quad.bl.x, quad.bl.y);
+      target.closePath();
     }, 1, drawCtx);
   }
   drawCtx.restore();
@@ -2519,8 +2586,10 @@ function renderScene(targetCtx, renderScale) {
     drawCtx.rotate(layer.rot);
     if (layer.clip && layer.clip.length > 2) applyClipPath(drawCtx, layer.clip);
     if (layer.type === 'image') {
+      drawCtx.globalCompositeOperation = (layer.effects && layer.effects.blend) || 'source-over';
       const imgCanvas = getProcessedImage(layer, imageScale);
       drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+      drawCtx.globalCompositeOperation = 'source-over';
       if (layer.borderWidth > 0) {
         drawCtx.lineWidth = layer.borderWidth;
         drawCtx.strokeStyle = layer.borderColor || '#111111';
@@ -2819,6 +2888,7 @@ function syncInspector() {
 
   if (active.type === 'image') {
     document.getElementById('img-crop-mode').value = state.cropMode || 'smooth';
+    document.getElementById('img-blend-mode').value = active.effects.blend || 'source-over';
     const fx = cloneEffects(active.effects);
     document.getElementById('img-grain').value = fx.grain;
     document.getElementById('img-fade').value = fx.fade;
@@ -2856,12 +2926,16 @@ function syncInspector() {
     document.getElementById('shape-kind').value = active.shapeKind;
     document.getElementById('shape-stroke').value = active.strokeWidth || 0;
     document.getElementById('shape-rough').value = active.rough || 0;
+    document.getElementById('shape-perspective').value = active.perspective || 0;
+    document.getElementById('shape-tilt').value = active.tilt || 0;
     document.getElementById('shape-rough-style').value = active.roughStyle || 'off';
     document.getElementById('shape-fill-enabled').checked = active.fillEnabled !== false;
     document.getElementById('shape-stroke-color').value = active.strokeColor || '#111111';
     document.getElementById('shape-fill-color').value = active.fillColor || '#ffffff';
     syncRangeValue('shape-stroke-val', active.strokeWidth || 0);
     syncRangeValue('shape-rough-val', active.rough || 0);
+    syncRangeValue('shape-perspective-val', active.perspective || 0);
+    syncRangeValue('shape-tilt-val', active.tilt || 0);
   }
   if (active.type === 'path') {
     document.getElementById('path-kind').value = active.pathKind;
@@ -3171,6 +3245,14 @@ document.getElementById('img-crop-mode').addEventListener('change', function () 
   }
 });
 
+document.getElementById('img-blend-mode').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'image') return;
+  active.effects.blend = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
 ['img-grain', 'img-fade', 'img-tint', 'img-blur', 'img-edge'].forEach(function (id) {
   const map = {
     'img-grain': ['grain', 'grain-val'],
@@ -3440,6 +3522,24 @@ document.getElementById('shape-rough').addEventListener('input', function () {
   render();
 });
 document.getElementById('shape-rough').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-perspective').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.perspective = Number(this.value);
+  syncRangeValue('shape-perspective-val', this.value);
+  render();
+});
+document.getElementById('shape-perspective').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-tilt').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.tilt = Number(this.value);
+  syncRangeValue('shape-tilt-val', this.value);
+  render();
+});
+document.getElementById('shape-tilt').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('shape-rough-style').addEventListener('change', function () {
   const active = getActiveLayer();
