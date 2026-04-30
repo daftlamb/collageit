@@ -1465,9 +1465,34 @@ function getImageOutlinePoints(layer) {
 function buildPath2DFromPoints(points, closePath) {
   const path = new Path2D();
   if (!points || !points.length) return path;
-  path.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) path.lineTo(points[i].x, points[i].y);
-  if (closePath !== false) path.closePath();
+  if (points.length < 3) {
+    path.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) path.lineTo(points[i].x, points[i].y);
+    if (closePath !== false) path.closePath();
+    return path;
+  }
+  if (closePath === false) {
+    path.moveTo(points[0].x, points[0].y);
+    for (let i = 0; i < points.length - 1; i++) {
+      const next = points[i + 1];
+      const mid = { x: (points[i].x + next.x) * 0.5, y: (points[i].y + next.y) * 0.5 };
+      if (i === 0) path.lineTo(mid.x, mid.y);
+      else path.quadraticCurveTo(points[i].x, points[i].y, mid.x, mid.y);
+    }
+    path.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    return path;
+  }
+  const firstMid = {
+    x: (points[0].x + points[1].x) * 0.5,
+    y: (points[0].y + points[1].y) * 0.5
+  };
+  path.moveTo(firstMid.x, firstMid.y);
+  for (let i = 1; i <= points.length; i++) {
+    const curr = points[i % points.length];
+    const prev = points[(i - 1 + points.length) % points.length];
+    const mid = { x: (prev.x + curr.x) * 0.5, y: (prev.y + curr.y) * 0.5 };
+    path.quadraticCurveTo(curr.x, curr.y, mid.x, mid.y);
+  }
   return path;
 }
 
@@ -1482,45 +1507,117 @@ function getPolygonCentroid(points) {
   return { x: x / points.length, y: y / points.length };
 }
 
+function sampleTornEdge(a, b, centroid, seed, edgeIndex, options) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.max(1, Math.hypot(dx, dy));
+  const tx = dx / len;
+  const ty = dy / len;
+  const baseNx = -ty;
+  const baseNy = tx;
+  const midX = (a.x + b.x) * 0.5;
+  const midY = (a.y + b.y) * 0.5;
+  const toCenterX = centroid.x - midX;
+  const toCenterY = centroid.y - midY;
+  const inwardSign = (baseNx * toCenterX + baseNy * toCenterY) >= 0 ? 1 : -1;
+  const nx = baseNx * inwardSign;
+  const ny = baseNy * inwardSign;
+  const steps = Math.max(4, Math.round(len / options.segment));
+  const points = [];
+  for (let s = 0; s <= steps; s++) {
+    const t = s / steps;
+    const px = a.x + dx * t;
+    const py = a.y + dy * t;
+    const low = snoise(seed * 0.011 + edgeIndex * 7.3 + t * options.freqA, seed * 0.017 + edgeIndex * 3.1);
+    const med = snoise(seed * 0.023 + edgeIndex * 11.7 + t * options.freqB, seed * 0.013 + edgeIndex * 4.9);
+    const wave = Math.sin(t * Math.PI * options.waveCount + edgeIndex * 0.7) * 0.25;
+    let inward = (low * 0.7 + med * 0.3 + wave) * options.amplitude;
+    if (options.biasInward) inward = Math.abs(inward) + options.amplitude * 0.2;
+    const tangent = med * options.tangent;
+    points.push({
+      x: px + nx * inward + tx * tangent,
+      y: py + ny * inward + ty * tangent
+    });
+  }
+  return points;
+}
+
+function buildRectTornOutline(layer, fx, seed) {
+  const x = -layer.w / 2;
+  const y = -layer.h / 2;
+  const w = layer.w;
+  const h = layer.h;
+  const rand = function (n) { return (snoise(seed * 0.01 + n * 13.7, seed * 0.02 + n * 7.1) + 1) * 0.5; };
+  const tl = { x: x + w * (0.04 + rand(1) * 0.05), y: y + h * (0.01 + rand(2) * 0.03) };
+  const tr = { x: x + w * (0.96 - rand(3) * 0.03), y: y + h * (0.02 + rand(4) * 0.04) };
+  const br = { x: x + w * (0.9 + rand(5) * 0.06), y: y + h * (0.95 - rand(6) * 0.02) };
+  const bl = { x: x + w * (0.03 + rand(7) * 0.03), y: y + h * (0.98 - rand(8) * 0.02) };
+  const corners = [tl, tr, br, bl];
+  const centroid = getPolygonCentroid(corners);
+  const amp = 2 + fx.torn * 0.08;
+  const top = sampleTornEdge(tl, tr, centroid, seed, 0, {
+    segment: 26,
+    amplitude: amp * 1.15,
+    tangent: amp * 0.18,
+    freqA: 1.9,
+    freqB: 4.4,
+    waveCount: 4.2,
+    biasInward: true
+  });
+  const right = sampleTornEdge(tr, br, centroid, seed, 1, {
+    segment: 34,
+    amplitude: amp * 0.2,
+    tangent: amp * 0.08,
+    freqA: 1.5,
+    freqB: 3.2,
+    waveCount: 2.1,
+    biasInward: false
+  });
+  const bottom = sampleTornEdge(br, bl, centroid, seed, 2, {
+    segment: 28,
+    amplitude: amp * 0.45,
+    tangent: amp * 0.12,
+    freqA: 1.7,
+    freqB: 3.5,
+    waveCount: 2.7,
+    biasInward: true
+  });
+  const left = sampleTornEdge(bl, tl, centroid, seed, 3, {
+    segment: 36,
+    amplitude: amp * 0.18,
+    tangent: amp * 0.08,
+    freqA: 1.3,
+    freqB: 2.9,
+    waveCount: 2.0,
+    biasInward: false
+  });
+  return top.concat(right.slice(1), bottom.slice(1), left.slice(1));
+}
+
 function buildTornOutlinePoints(layer) {
   const fx = cloneEffects(layer.effects);
   if (fx.torn <= 0) return getImageOutlinePoints(layer);
+  const seed = hashString((layer.src || layer.name || 'image') + '|' + layer.w + '|' + layer.h);
+  if (!layer.clip || layer.clip.length < 3) return buildRectTornOutline(layer, fx, seed);
   const outline = getImageOutlinePoints(layer);
   const centroid = getPolygonCentroid(outline);
-  const spacing = Math.max(6, 18 - fx.torn * 0.1);
-  const amp = 1.5 + fx.torn * 0.11;
-  const seed = hashString((layer.src || layer.name || 'image') + '|' + layer.w + '|' + layer.h);
+  const spacing = Math.max(12, 34 - fx.torn * 0.18);
+  const amp = 1.1 + fx.torn * 0.045;
   const result = [];
   for (let i = 0; i < outline.length; i++) {
     const a = outline[i];
     const b = outline[(i + 1) % outline.length];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.max(1, Math.hypot(dx, dy));
-    const steps = Math.max(1, Math.round(len / spacing));
-    for (let s = 0; s < steps; s++) {
-      if (i > 0 && s === 0) continue;
-      const t = s / steps;
-      const px = a.x + dx * t;
-      const py = a.y + dy * t;
-      const tx = dx / len;
-      const ty = dy / len;
-      const n1x = -ty;
-      const n1y = tx;
-      const toCenterX = centroid.x - px;
-      const toCenterY = centroid.y - py;
-      const dot = n1x * toCenterX + n1y * toCenterY;
-      const nx = dot >= 0 ? n1x : -n1x;
-      const ny = dot >= 0 ? n1y : -n1y;
-      const noiseA = snoise(seed * 0.013 + i * 3.7 + t * 4.5, seed * 0.021 + i * 1.9);
-      const noiseB = snoise(seed * 0.034 + i * 8.1 + t * 11.2, seed * 0.017 + i * 2.6);
-      const inset = (0.32 + ((noiseA + 1) * 0.5) * 0.68 + noiseB * 0.12) * amp;
-      const tangent = noiseB * amp * 0.18;
-      result.push({
-        x: px + nx * inset + tx * tangent,
-        y: py + ny * inset + ty * tangent
-      });
-    }
+    const edgePoints = sampleTornEdge(a, b, centroid, seed, i, {
+      segment: spacing,
+      amplitude: amp,
+      tangent: amp * 0.06,
+      freqA: 1.35,
+      freqB: 2.7,
+      waveCount: 1.8,
+      biasInward: true
+    });
+    if (i > 0) edgePoints.shift();
+    result.push.apply(result, edgePoints);
   }
   return result;
 }
