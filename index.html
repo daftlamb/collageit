@@ -624,8 +624,10 @@ input[type="range"]{
           <input type="range" id="shape-tilt" min="-100" max="100" value="0">
           <div class="row"><label>Density</label><span class="value" id="shape-density-val">8</span></div>
           <input type="range" id="shape-density" min="2" max="20" value="8">
-          <div class="row"><label>Aspect</label><span class="value" id="shape-aspect-val">1.00</span></div>
-          <input type="range" id="shape-aspect" min="0.4" max="1.8" step="0.05" value="1.00">
+          <div class="row"><label>Aspect</label><span class="value" id="shape-aspect-val">0.80</span></div>
+          <input type="range" id="shape-aspect" min="0.1" max="0.9" step="0.05" value="0.80">
+          <div class="row"><label>Curve</label><span class="value" id="shape-curve-val">0</span></div>
+          <input type="range" id="shape-curve" min="-100" max="100" value="0">
           <select class="field font-select" id="shape-rough-style">
             <option value="off">Clean Stroke</option>
             <option value="rough">Rough Stroke</option>
@@ -732,6 +734,7 @@ function defaultShapeLayer(kind) {
     tilt: 0,
     gridDensity: 8,
     gridAspect: kind === 'grid' ? 0.8 : 1,
+    gridCurve: 0,
     roughStyle: 'off',
     fillEnabled: true,
     strokeColor: '#111111',
@@ -964,6 +967,7 @@ function makeSnapshot() {
         plain.tilt = layer.tilt || 0;
         plain.gridDensity = layer.gridDensity || 8;
         plain.gridAspect = layer.gridAspect || 1;
+        plain.gridCurve = layer.gridCurve || 0;
         plain.roughStyle = layer.roughStyle;
         plain.fillEnabled = layer.fillEnabled !== false;
         plain.strokeColor = layer.strokeColor;
@@ -1072,6 +1076,7 @@ function hydrateLayer(plain) {
     tilt: plain.tilt || 0,
     gridDensity: plain.gridDensity || 8,
     gridAspect: plain.gridAspect || 1,
+    gridCurve: plain.gridCurve || 0,
     roughStyle: plain.roughStyle || 'off',
     fillEnabled: plain.fillEnabled !== false,
     strokeColor: plain.strokeColor || '#111111',
@@ -2316,6 +2321,15 @@ function lerpPoint(a, b, t) {
   };
 }
 
+function curvePointOnQuad(quad, u, v, curve) {
+  const top = lerpPoint(quad.tl, quad.tr, u);
+  const bottom = lerpPoint(quad.bl, quad.br, u);
+  const base = lerpPoint(top, bottom, v);
+  if (!curve) return base;
+  const arch = Math.sin(u * Math.PI) * curve;
+  return { x: base.x, y: base.y - arch * (1 - Math.abs(v - 0.5) * 1.2) };
+}
+
 function buildGridQuad(layer) {
   const x = -layer.w / 2;
   const y = -layer.h / 2;
@@ -2371,6 +2385,7 @@ function renderShapeLayer(layer, ctxRef) {
     }, 1, drawCtx);
   } else if (layer.shapeKind === 'grid') {
     const quad = buildGridQuad(layer);
+    const curve = (Number(layer.gridCurve || 0) / 100) * layer.h * 0.28;
     if (layer.fillEnabled !== false && layer.fillColor && layer.fillColor !== 'transparent') {
       drawCtx.beginPath();
       drawCtx.moveTo(quad.tl.x, quad.tl.y);
@@ -2385,8 +2400,8 @@ function renderShapeLayer(layer, ctxRef) {
     const rows = Math.max(2, Math.round(cols * (layer.gridAspect || 1)));
     for (let c = 0; c <= cols; c++) {
       const t = c / cols;
-      const top = lerpPoint(quad.tl, quad.tr, t);
-      const bottom = lerpPoint(quad.bl, quad.br, t);
+      const top = curvePointOnQuad(quad, t, 0, curve);
+      const bottom = curvePointOnQuad(quad, t, 1, curve);
       renderShapeStroke(layer, function (target) {
         target.beginPath();
         target.moveTo(top.x, top.y);
@@ -2395,12 +2410,15 @@ function renderShapeLayer(layer, ctxRef) {
     }
     for (let r = 0; r <= rows; r++) {
       const t = r / rows;
-      const left = lerpPoint(quad.tl, quad.bl, t);
-      const right = lerpPoint(quad.tr, quad.br, t);
+      const samples = Math.max(8, cols * 2);
       renderShapeStroke(layer, function (target) {
         target.beginPath();
-        target.moveTo(left.x, left.y);
-        target.lineTo(right.x, right.y);
+        for (let s = 0; s <= samples; s++) {
+          const u = s / samples;
+          const pt = curvePointOnQuad(quad, u, t, curve);
+          if (s === 0) target.moveTo(pt.x, pt.y);
+          else target.lineTo(pt.x, pt.y);
+        }
       }, 1, drawCtx);
     }
     renderShapeStroke(layer, function (target) {
@@ -2941,6 +2959,7 @@ function syncInspector() {
     document.getElementById('shape-tilt').value = active.tilt || 0;
     document.getElementById('shape-density').value = active.gridDensity || 8;
     document.getElementById('shape-aspect').value = Number(active.gridAspect || 1).toFixed(2);
+    document.getElementById('shape-curve').value = active.gridCurve || 0;
     document.getElementById('shape-rough-style').value = active.roughStyle || 'off';
     document.getElementById('shape-fill-enabled').checked = active.fillEnabled !== false;
     document.getElementById('shape-stroke-color').value = active.strokeColor || '#111111';
@@ -2951,6 +2970,7 @@ function syncInspector() {
     syncRangeValue('shape-tilt-val', active.tilt || 0);
     syncRangeValue('shape-density-val', active.gridDensity || 8);
     syncRangeValue('shape-aspect-val', Number(active.gridAspect || 1).toFixed(2));
+    syncRangeValue('shape-curve-val', active.gridCurve || 0);
   }
   if (active.type === 'path') {
     document.getElementById('path-kind').value = active.pathKind;
@@ -3576,6 +3596,15 @@ document.getElementById('shape-aspect').addEventListener('input', function () {
   render();
 });
 document.getElementById('shape-aspect').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-curve').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.gridCurve = Number(this.value);
+  syncRangeValue('shape-curve-val', this.value);
+  render();
+});
+document.getElementById('shape-curve').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('shape-rough-style').addEventListener('change', function () {
   const active = getActiveLayer();
