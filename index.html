@@ -513,6 +513,12 @@ input[type="range"]{
         <div class="row"><label>Edge Stroke</label><span class="value" id="edge-val">0</span></div>
         <input type="range" id="img-edge" min="0" max="100" value="0">
         <input class="field" id="img-edge-color" type="color" value="#111111">
+        <div class="row"><label>Torn Edge</label><span class="value" id="img-torn-val">0</span></div>
+        <input type="range" id="img-torn" min="0" max="100" value="0">
+        <div class="row"><label>Fiber</label><span class="value" id="img-fiber-val">0</span></div>
+        <input type="range" id="img-fiber" min="0" max="100" value="0">
+        <div class="row"><label>Shadow</label><span class="value" id="img-tear-shadow-val">0</span></div>
+        <input type="range" id="img-tear-shadow" min="0" max="100" value="0">
         <div class="row"><label>Border</label><span class="value" id="img-border-val">0</span></div>
         <input type="range" id="img-border" min="0" max="32" value="0">
         <input class="field" id="img-border-color" type="color" value="#111111">
@@ -661,7 +667,18 @@ input[type="range"]{
 
 <script>
 const PAPER_SWATCHES = ['#f5f0e8','#f0ece5','#efe7da','#f4f1ea','#ece5d7','#f7f3ec'];
-const DEFAULT_IMAGE_EFFECTS = { grain: 0, fade: 0, tint: 0, blur: 0, edge: 0, edgeColor: '#111111', blend: 'source-over' };
+const DEFAULT_IMAGE_EFFECTS = {
+  grain: 0,
+  fade: 0,
+  tint: 0,
+  blur: 0,
+  edge: 0,
+  edgeColor: '#111111',
+  torn: 0,
+  fiber: 0,
+  tearShadow: 0,
+  blend: 'source-over'
+};
 const state = {
   layers: [],
   activeId: null,
@@ -813,6 +830,9 @@ function cloneEffects(fx) {
     blur: Number((fx && fx.blur) || 0),
     edge: Number((fx && fx.edge) || 0),
     edgeColor: (fx && fx.edgeColor) || '#111111',
+    torn: Number((fx && fx.torn) || 0),
+    fiber: Number((fx && fx.fiber) || 0),
+    tearShadow: Number((fx && fx.tearShadow) || 0),
     blend: (fx && fx.blend) || 'source-over'
   };
 }
@@ -1430,6 +1450,126 @@ function getLineRenderWidth(line, layer) {
   const baseWidth = measureCtx.measureText(line || ' ').width;
   const spacingExtra = Math.max(0, (line || ' ').length - 1) * layer.letterSpacing;
   return baseWidth + spacingExtra;
+}
+
+function getImageOutlinePoints(layer) {
+  if (layer.clip && layer.clip.length > 2) return cloneClip(layer.clip);
+  return [
+    { x: -layer.w / 2, y: -layer.h / 2 },
+    { x: layer.w / 2, y: -layer.h / 2 },
+    { x: layer.w / 2, y: layer.h / 2 },
+    { x: -layer.w / 2, y: layer.h / 2 }
+  ];
+}
+
+function buildPath2DFromPoints(points, closePath) {
+  const path = new Path2D();
+  if (!points || !points.length) return path;
+  path.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) path.lineTo(points[i].x, points[i].y);
+  if (closePath !== false) path.closePath();
+  return path;
+}
+
+function getPolygonCentroid(points) {
+  if (!points || !points.length) return { x: 0, y: 0 };
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < points.length; i++) {
+    x += points[i].x;
+    y += points[i].y;
+  }
+  return { x: x / points.length, y: y / points.length };
+}
+
+function buildTornOutlinePoints(layer) {
+  const fx = cloneEffects(layer.effects);
+  if (fx.torn <= 0) return getImageOutlinePoints(layer);
+  const outline = getImageOutlinePoints(layer);
+  const centroid = getPolygonCentroid(outline);
+  const spacing = Math.max(6, 18 - fx.torn * 0.1);
+  const amp = 1.5 + fx.torn * 0.11;
+  const seed = hashString((layer.src || layer.name || 'image') + '|' + layer.w + '|' + layer.h);
+  const result = [];
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i];
+    const b = outline[(i + 1) % outline.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const steps = Math.max(1, Math.round(len / spacing));
+    for (let s = 0; s < steps; s++) {
+      if (i > 0 && s === 0) continue;
+      const t = s / steps;
+      const px = a.x + dx * t;
+      const py = a.y + dy * t;
+      const tx = dx / len;
+      const ty = dy / len;
+      const n1x = -ty;
+      const n1y = tx;
+      const toCenterX = centroid.x - px;
+      const toCenterY = centroid.y - py;
+      const dot = n1x * toCenterX + n1y * toCenterY;
+      const nx = dot >= 0 ? n1x : -n1x;
+      const ny = dot >= 0 ? n1y : -n1y;
+      const noiseA = snoise(seed * 0.013 + i * 3.7 + t * 4.5, seed * 0.021 + i * 1.9);
+      const noiseB = snoise(seed * 0.034 + i * 8.1 + t * 11.2, seed * 0.017 + i * 2.6);
+      const inset = (0.32 + ((noiseA + 1) * 0.5) * 0.68 + noiseB * 0.12) * amp;
+      const tangent = noiseB * amp * 0.18;
+      result.push({
+        x: px + nx * inset + tx * tangent,
+        y: py + ny * inset + ty * tangent
+      });
+    }
+  }
+  return result;
+}
+
+function renderTornImageLayer(drawCtx, layer, imgCanvas) {
+  const fx = cloneEffects(layer.effects);
+  const tornPoints = buildTornOutlinePoints(layer);
+  const tornPath = buildPath2DFromPoints(tornPoints, true);
+  if (fx.tearShadow > 0) {
+    drawCtx.save();
+    drawCtx.shadowColor = 'rgba(20,16,12,' + (0.08 + fx.tearShadow / 320).toFixed(3) + ')';
+    drawCtx.shadowBlur = 2 + fx.tearShadow * 0.12;
+    drawCtx.shadowOffsetY = 1 + fx.tearShadow * 0.05;
+    drawCtx.strokeStyle = 'rgba(20,16,12,0.08)';
+    drawCtx.lineWidth = Math.max(1.4, 2 + fx.tearShadow * 0.06);
+    drawCtx.stroke(tornPath);
+    drawCtx.restore();
+  }
+
+  drawCtx.save();
+  drawCtx.clip(tornPath);
+  drawCtx.globalCompositeOperation = fx.blend || 'source-over';
+  drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+  drawCtx.restore();
+  drawCtx.globalCompositeOperation = 'source-over';
+
+  if (fx.fiber > 0 || fx.torn > 0) {
+    drawCtx.save();
+    drawCtx.strokeStyle = state.paperColor;
+    drawCtx.lineJoin = 'round';
+    drawCtx.lineCap = 'round';
+    drawCtx.globalAlpha = 0.55;
+    drawCtx.lineWidth = Math.max(1.2, 1.4 + fx.fiber * 0.05 + fx.torn * 0.03);
+    drawCtx.stroke(tornPath);
+    if (fx.fiber > 0) {
+      drawCtx.globalAlpha = 0.24 + fx.fiber / 420;
+      drawCtx.lineWidth += 1 + fx.fiber * 0.035;
+      drawCtx.stroke(tornPath);
+    }
+    drawCtx.restore();
+  }
+
+  if (layer.borderWidth > 0) {
+    drawCtx.save();
+    drawCtx.lineWidth = layer.borderWidth;
+    drawCtx.strokeStyle = layer.borderColor || '#111111';
+    drawCtx.stroke(tornPath);
+    drawCtx.restore();
+  }
 }
 
 function getPathPointWorld(layer, point) {
@@ -2788,13 +2928,19 @@ function renderScene(targetCtx, renderScale) {
     drawCtx.save();
     drawCtx.translate(layer.x + layer.w / 2, layer.y + layer.h / 2);
     drawCtx.rotate(layer.rot);
-    if (layer.clip && layer.clip.length > 2) applyClipPath(drawCtx, layer.clip);
+    const imageFx = layer.type === 'image' ? cloneEffects(layer.effects) : null;
+    const useTornEdge = !!(imageFx && imageFx.torn > 0);
+    if (layer.clip && layer.clip.length > 2 && !useTornEdge) applyClipPath(drawCtx, layer.clip);
     if (layer.type === 'image') {
-      drawCtx.globalCompositeOperation = (layer.effects && layer.effects.blend) || 'source-over';
       const imgCanvas = getProcessedImage(layer, imageScale);
-      drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
-      drawCtx.globalCompositeOperation = 'source-over';
-      if (layer.borderWidth > 0) {
+      if (useTornEdge) {
+        renderTornImageLayer(drawCtx, layer, imgCanvas);
+      } else {
+        drawCtx.globalCompositeOperation = (layer.effects && layer.effects.blend) || 'source-over';
+        drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+        drawCtx.globalCompositeOperation = 'source-over';
+      }
+      if (!useTornEdge && layer.borderWidth > 0) {
         drawCtx.lineWidth = layer.borderWidth;
         drawCtx.strokeStyle = layer.borderColor || '#111111';
         if (layer.clip && layer.clip.length > 2) {
@@ -3115,6 +3261,9 @@ function syncInspector() {
     document.getElementById('img-blur').value = fx.blur;
     document.getElementById('img-edge').value = fx.edge || 0;
     document.getElementById('img-edge-color').value = fx.edgeColor || '#111111';
+    document.getElementById('img-torn').value = fx.torn || 0;
+    document.getElementById('img-fiber').value = fx.fiber || 0;
+    document.getElementById('img-tear-shadow').value = fx.tearShadow || 0;
     document.getElementById('img-border').value = active.borderWidth || 0;
     document.getElementById('img-border-color').value = active.borderColor || '#111111';
     syncRangeValue('grain-val', fx.grain);
@@ -3122,6 +3271,9 @@ function syncInspector() {
     syncRangeValue('tint-val', fx.tint);
     syncRangeValue('blur-val', fx.blur);
     syncRangeValue('edge-val', fx.edge || 0);
+    syncRangeValue('img-torn-val', fx.torn || 0);
+    syncRangeValue('img-fiber-val', fx.fiber || 0);
+    syncRangeValue('img-tear-shadow-val', fx.tearShadow || 0);
     syncRangeValue('img-border-val', active.borderWidth || 0);
   } else if (active.type === 'text' || (active.type === 'path' && active.pathKind === 'textpath')) {
     document.getElementById('text-content').value = active.text;
@@ -3511,13 +3663,16 @@ document.getElementById('img-blend-mode').addEventListener('change', function ()
   pushHistorySnapshot();
 });
 
-['img-grain', 'img-fade', 'img-tint', 'img-blur', 'img-edge'].forEach(function (id) {
+['img-grain', 'img-fade', 'img-tint', 'img-blur', 'img-edge', 'img-torn', 'img-fiber', 'img-tear-shadow'].forEach(function (id) {
   const map = {
     'img-grain': ['grain', 'grain-val'],
     'img-fade': ['fade', 'fade-val'],
     'img-tint': ['tint', 'tint-val'],
     'img-blur': ['blur', 'blur-val'],
-    'img-edge': ['edge', 'edge-val']
+    'img-edge': ['edge', 'edge-val'],
+    'img-torn': ['torn', 'img-torn-val'],
+    'img-fiber': ['fiber', 'img-fiber-val'],
+    'img-tear-shadow': ['tearShadow', 'img-tear-shadow-val']
   };
   document.getElementById(id).addEventListener('input', function () {
     const active = getActiveLayer();
