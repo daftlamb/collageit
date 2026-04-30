@@ -622,6 +622,10 @@ input[type="range"]{
           <input type="range" id="shape-perspective" min="-100" max="100" value="0">
           <div class="row"><label>Tilt</label><span class="value" id="shape-tilt-val">0</span></div>
           <input type="range" id="shape-tilt" min="-100" max="100" value="0">
+          <div class="row"><label>Density</label><span class="value" id="shape-density-val">8</span></div>
+          <input type="range" id="shape-density" min="2" max="20" value="8">
+          <div class="row"><label>Aspect</label><span class="value" id="shape-aspect-val">1.00</span></div>
+          <input type="range" id="shape-aspect" min="0.4" max="1.8" step="0.05" value="1.00">
           <select class="field font-select" id="shape-rough-style">
             <option value="off">Clean Stroke</option>
             <option value="rough">Rough Stroke</option>
@@ -726,6 +730,8 @@ function defaultShapeLayer(kind) {
     rough: 20,
     perspective: 0,
     tilt: 0,
+    gridDensity: 8,
+    gridAspect: kind === 'grid' ? 0.8 : 1,
     roughStyle: 'off',
     fillEnabled: true,
     strokeColor: '#111111',
@@ -956,6 +962,8 @@ function makeSnapshot() {
         plain.rough = layer.rough;
         plain.perspective = layer.perspective || 0;
         plain.tilt = layer.tilt || 0;
+        plain.gridDensity = layer.gridDensity || 8;
+        plain.gridAspect = layer.gridAspect || 1;
         plain.roughStyle = layer.roughStyle;
         plain.fillEnabled = layer.fillEnabled !== false;
         plain.strokeColor = layer.strokeColor;
@@ -1062,6 +1070,8 @@ function hydrateLayer(plain) {
     rough: plain.rough || 0,
     perspective: plain.perspective || 0,
     tilt: plain.tilt || 0,
+    gridDensity: plain.gridDensity || 8,
+    gridAspect: plain.gridAspect || 1,
     roughStyle: plain.roughStyle || 'off',
     fillEnabled: plain.fillEnabled !== false,
     strokeColor: plain.strokeColor || '#111111',
@@ -2313,9 +2323,9 @@ function buildGridQuad(layer) {
   const h = layer.h;
   const persp = Number(layer.perspective || 0) / 100;
   const tilt = Number(layer.tilt || 0) / 100;
-  const inset = Math.abs(persp) * w * 0.34;
-  const skew = tilt * w * 0.26;
-  const lift = Math.abs(persp) * h * 0.24 + Math.abs(tilt) * h * 0.08;
+  const inset = Math.abs(persp) * w * 0.48;
+  const skew = tilt * w * 0.34;
+  const lift = Math.abs(persp) * h * 0.44 + Math.abs(tilt) * h * 0.12;
   if (persp >= 0) {
     return {
       tl: { x: x + inset + skew, y: y + lift },
@@ -2371,7 +2381,8 @@ function renderShapeLayer(layer, ctxRef) {
       drawCtx.fillStyle = layer.fillColor;
       drawCtx.fill();
     }
-    const cols = 6, rows = 6;
+    const cols = Math.max(2, Math.round(layer.gridDensity || 8));
+    const rows = Math.max(2, Math.round(cols * (layer.gridAspect || 1)));
     for (let c = 0; c <= cols; c++) {
       const t = c / cols;
       const top = lerpPoint(quad.tl, quad.tr, t);
@@ -2928,6 +2939,8 @@ function syncInspector() {
     document.getElementById('shape-rough').value = active.rough || 0;
     document.getElementById('shape-perspective').value = active.perspective || 0;
     document.getElementById('shape-tilt').value = active.tilt || 0;
+    document.getElementById('shape-density').value = active.gridDensity || 8;
+    document.getElementById('shape-aspect').value = Number(active.gridAspect || 1).toFixed(2);
     document.getElementById('shape-rough-style').value = active.roughStyle || 'off';
     document.getElementById('shape-fill-enabled').checked = active.fillEnabled !== false;
     document.getElementById('shape-stroke-color').value = active.strokeColor || '#111111';
@@ -2936,6 +2949,8 @@ function syncInspector() {
     syncRangeValue('shape-rough-val', active.rough || 0);
     syncRangeValue('shape-perspective-val', active.perspective || 0);
     syncRangeValue('shape-tilt-val', active.tilt || 0);
+    syncRangeValue('shape-density-val', active.gridDensity || 8);
+    syncRangeValue('shape-aspect-val', Number(active.gridAspect || 1).toFixed(2));
   }
   if (active.type === 'path') {
     document.getElementById('path-kind').value = active.pathKind;
@@ -3540,6 +3555,27 @@ document.getElementById('shape-tilt').addEventListener('input', function () {
   render();
 });
 document.getElementById('shape-tilt').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-density').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.gridDensity = Number(this.value);
+  syncRangeValue('shape-density-val', this.value);
+  render();
+});
+document.getElementById('shape-density').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('shape-aspect').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'shape') return;
+  active.gridAspect = Number(this.value);
+  if (active.shapeKind === 'grid') {
+    active.h = active.w * active.gridAspect;
+  }
+  syncRangeValue('shape-aspect-val', Number(this.value).toFixed(2));
+  render();
+});
+document.getElementById('shape-aspect').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('shape-rough-style').addEventListener('change', function () {
   const active = getActiveLayer();
