@@ -204,9 +204,10 @@ button,input,select,textarea{font:inherit}
   width:30px;
   height:30px;
   border-radius:4px;
-  object-fit:cover;
+  object-fit:contain;
   background:#e8dfd1;
   flex-shrink:0;
+  padding:2px;
 }
 .layer-name{
   flex:1;
@@ -520,6 +521,10 @@ input[type="range"]{
           <option value="newspaper">Dither: Newspaper</option>
           <option value="coarse">Dither: Coarse</option>
         </select>
+        <select class="field font-select" id="img-dither-color-mode">
+          <option value="mono">Dither Color: Monochrome</option>
+          <option value="keep">Dither Color: Keep Color</option>
+        </select>
         <div class="row"><label>Pixel Size</label><span class="value" id="img-dither-pixel-val">1</span></div>
         <input type="range" id="img-dither-pixel" min="1" max="16" value="1">
         <div class="row"><label>Border</label><span class="value" id="img-border-val">0</span></div>
@@ -679,6 +684,7 @@ const DEFAULT_IMAGE_EFFECTS = {
   edgeColor: '#111111',
   dither: 0,
   ditherMode: 'ordered',
+  ditherColorMode: 'mono',
   ditherPixel: 1,
   blend: 'source-over'
 };
@@ -835,6 +841,7 @@ function cloneEffects(fx) {
     edgeColor: (fx && fx.edgeColor) || '#111111',
     dither: Number((fx && fx.dither) || 0),
     ditherMode: (fx && fx.ditherMode) || 'ordered',
+    ditherColorMode: (fx && fx.ditherColorMode) || 'mono',
     ditherPixel: Math.max(1, Number((fx && fx.ditherPixel) || 1)),
     blend: (fx && fx.blend) || 'source-over'
   };
@@ -2281,7 +2288,7 @@ function applyEdgeOverlay(octx, imageData, targetW, targetH, strength, colorHex)
   octx.putImageData(edgeData, 0, 0);
 }
 
-function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, pixelSize) {
+function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, colorMode, pixelSize) {
   if (strength <= 0) return;
   const src = imageData.data;
   const outData = octx.createImageData(targetW, targetH);
@@ -2312,7 +2319,7 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, p
     for (let bx = 0; bx < targetW; bx += px) {
       const maxY = Math.min(targetH, by + px);
       const maxX = Math.min(targetW, bx + px);
-      let sumA = 0;
+      let sumA = 0, sumR = 0, sumG = 0, sumB = 0;
       let sumLuma = 0;
       let count = 0;
       for (let y = by; y < maxY; y++) {
@@ -2321,12 +2328,18 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, p
           const r = src[idx];
           const g = src[idx + 1];
           const b = src[idx + 2];
+          sumR += r;
+          sumG += g;
+          sumB += b;
           sumLuma += (r * 0.299 + g * 0.587 + b * 0.114) / 255;
           sumA += src[idx + 3];
           count++;
         }
       }
       if (!count) continue;
+      const avgR = sumR / count;
+      const avgG = sumG / count;
+      const avgB = sumB / count;
       const centered = (sumLuma / count - 0.5) * contrast + 0.5;
       let threshold;
       if (mode === 'newspaper') {
@@ -2340,9 +2353,12 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, p
       for (let y = by; y < maxY; y++) {
         for (let x = bx; x < maxX; x++) {
           const idx = (y * targetW + x) * 4;
-          out[idx] = Math.round(src[idx] * (1 - blend) + target * blend);
-          out[idx + 1] = Math.round(src[idx + 1] * (1 - blend) + target * blend);
-          out[idx + 2] = Math.round(src[idx + 2] * (1 - blend) + target * blend);
+          const baseR = colorMode === 'keep' ? (d ? avgR : 255) : target;
+          const baseG = colorMode === 'keep' ? (d ? avgG : 255) : target;
+          const baseB = colorMode === 'keep' ? (d ? avgB : 255) : target;
+          out[idx] = Math.round(src[idx] * (1 - blend) + baseR * blend);
+          out[idx + 1] = Math.round(src[idx + 1] * (1 - blend) + baseG * blend);
+          out[idx + 2] = Math.round(src[idx + 2] * (1 - blend) + baseB * blend);
           out[idx + 3] = alpha;
         }
       }
@@ -2375,6 +2391,7 @@ function getProcessedImage(layer, renderScale) {
     fx.edgeColor,
     fx.dither,
     fx.ditherMode,
+    fx.ditherColorMode,
     fx.ditherPixel
   ].join('|');
   if (layer._cacheKey === key && layer._cacheCanvas) return layer._cacheCanvas;
@@ -2446,7 +2463,7 @@ function getProcessedImage(layer, renderScale) {
 
   if (fx.dither > 0) {
     const ditherSource = octx.getImageData(0, 0, targetW, targetH);
-    applyDitherOverlay(octx, ditherSource, targetW, targetH, fx.dither / 100, fx.ditherMode, fx.ditherPixel * scale);
+    applyDitherOverlay(octx, ditherSource, targetW, targetH, fx.dither / 100, fx.ditherMode, fx.ditherColorMode, fx.ditherPixel * scale);
   }
 
   if (fx.edge > 0) {
@@ -2933,7 +2950,7 @@ function render() {
   const selectedIds = getSelectedLayerIds();
   for (let i = 0; i < state.layers.length; i++) {
     const layer = state.layers[i];
-    if (selectedIds.indexOf(layer.id) >= 0) renderSelection(layer, layer.id === state.activeId);
+    if (selectedIds.indexOf(layer.id) >= 0 && !isLayerLocked(layer)) renderSelection(layer, layer.id === state.activeId);
   }
 
   renderCropPreview();
@@ -3227,6 +3244,7 @@ function syncInspector() {
     document.getElementById('img-edge-color').value = fx.edgeColor || '#111111';
     document.getElementById('img-dither').value = fx.dither || 0;
     document.getElementById('img-dither-mode').value = fx.ditherMode || 'ordered';
+    document.getElementById('img-dither-color-mode').value = fx.ditherColorMode || 'mono';
     document.getElementById('img-dither-pixel').value = fx.ditherPixel || 1;
     document.getElementById('img-border').value = active.borderWidth || 0;
     document.getElementById('img-border-color').value = active.borderColor || '#111111';
@@ -3630,6 +3648,15 @@ document.getElementById('img-dither-mode').addEventListener('change', function (
   const active = getActiveLayer();
   if (!active || active.type !== 'image') return;
   active.effects.ditherMode = this.value;
+  active._cacheKey = null;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('img-dither-color-mode').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'image') return;
+  active.effects.ditherColorMode = this.value;
   active._cacheKey = null;
   render();
   pushHistorySnapshot();
