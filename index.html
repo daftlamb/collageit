@@ -106,7 +106,7 @@ button,input,select,textarea{font:inherit}
   margin:0 2px;
 }
 #toolbar-spacer{ margin-left:auto; }
-#canvas-size-select,.font-select{
+#canvas-size-select,.font-select,#toolbar-crop-select{
   height:32px;
   border-radius:7px;
   border:1px solid var(--line);
@@ -114,6 +114,11 @@ button,input,select,textarea{font:inherit}
   color:var(--text);
   padding:0 10px;
   font-size:12px;
+}
+#toolbar-crop-select.active{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:#fff9f1;
 }
 #export-scale-select{
   height:32px;
@@ -376,6 +381,19 @@ input[type="range"]{
   cursor:pointer;
 }
 .swatch.active{ outline:2px solid var(--accent); }
+.swatch-color{
+  width:100%;
+  aspect-ratio:1;
+  border-radius:6px;
+  border:1px solid rgba(0,0,0,0.08);
+  background:transparent;
+  padding:0;
+  overflow:hidden;
+  cursor:pointer;
+}
+.swatch-color::-webkit-color-swatch-wrapper{ padding:0; }
+.swatch-color::-webkit-color-swatch{ border:none; border-radius:6px; }
+.swatch-color::-moz-color-swatch{ border:none; border-radius:6px; }
 .pill{
   display:inline-flex;
   align-items:center;
@@ -414,7 +432,11 @@ input[type="range"]{
   </select>
   <div class="sep"></div>
   <button class="tool-btn active" id="btn-select" title="Select / Move (V)">Select</button>
-  <button class="tool-btn" id="btn-lasso" title="Free Crop (L)">Free Crop</button>
+  <select id="toolbar-crop-select" title="Free Crop (L)">
+    <option value="smooth">Free Crop: Smooth</option>
+    <option value="polygon">Free Crop: Polygon</option>
+    <option value="bezier">Free Crop: Bezier</option>
+  </select>
   <button class="tool-btn" id="btn-rectcrop" title="Rect Crop (R)">Rect Crop</button>
   <button class="tool-btn" id="btn-text" title="Add Text (T)">Text</button>
   <button class="tool-btn" id="btn-brush" title="Brush Path (B)">Brush</button>
@@ -665,8 +687,9 @@ input[type="range"]{
 
       <div class="section">
         <h3>Paper Tones</h3>
-        <div class="swatch-grid" id="paper-swatches"></div>
-        <input class="field" id="paper-color-custom" type="color" value="#f5f0e8" aria-label="Custom paper color">
+        <div class="swatch-grid" id="paper-swatches">
+          <input id="paper-color-custom" class="swatch-color" type="color" value="#f5f0e8" aria-label="Custom paper color">
+        </div>
       </div>
     </div>
   </div>
@@ -3194,11 +3217,11 @@ function removePathPoint(layer, pointIndex) {
 
 function setTool(tool) {
   state.tool = tool;
-  const buttons = ['btn-select', 'btn-lasso', 'btn-rectcrop', 'btn-text', 'btn-brush', 'btn-line', 'btn-blob', 'btn-pathtext'];
+  const buttons = ['btn-select', 'btn-rectcrop', 'btn-text', 'btn-brush', 'btn-line', 'btn-blob', 'btn-pathtext'];
   for (let i = 0; i < buttons.length; i++) document.getElementById(buttons[i]).classList.remove('active');
+  document.getElementById('toolbar-crop-select').classList.remove('active');
   const map = {
     select: 'btn-select',
-    lasso: 'btn-lasso',
     rectcrop: 'btn-rectcrop',
     text: 'btn-text',
     brush: 'btn-brush',
@@ -3206,8 +3229,9 @@ function setTool(tool) {
     blob: 'btn-blob',
     pathtext: 'btn-pathtext'
   };
-  document.getElementById(map[tool]).classList.add('active');
-  const labelMap = { rectcrop: 'Rect Crop', pathtext: 'Path Text', line: 'Line' };
+  if (tool === 'lasso') document.getElementById('toolbar-crop-select').classList.add('active');
+  else document.getElementById(map[tool]).classList.add('active');
+  const labelMap = { lasso: 'Free Crop', rectcrop: 'Rect Crop', pathtext: 'Path Text', line: 'Line' };
   document.getElementById('status-tool').textContent = 'Tool: ' + (labelMap[tool] || tool.charAt(0).toUpperCase() + tool.slice(1));
   canvas.style.cursor = tool === 'text' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
 }
@@ -3352,6 +3376,7 @@ function syncInspector() {
 
   if (active.type === 'image') {
     document.getElementById('img-crop-mode').value = state.cropMode || 'smooth';
+    document.getElementById('toolbar-crop-select').value = state.cropMode || 'smooth';
     document.getElementById('img-blend-mode').value = active.effects.blend || 'source-over';
     const fx = cloneEffects(active.effects);
     document.getElementById('img-grain').value = fx.grain;
@@ -3673,7 +3698,11 @@ canvas.addEventListener('wheel', function (e) {
 }, { passive: false });
 
 document.getElementById('btn-select').addEventListener('click', function () { setTool('select'); });
-document.getElementById('btn-lasso').addEventListener('click', function () { beginCropTool('lasso'); });
+document.getElementById('toolbar-crop-select').addEventListener('change', function () {
+  state.cropMode = this.value;
+  beginCropTool('lasso');
+  syncInspector();
+});
 document.getElementById('btn-rectcrop').addEventListener('click', function () { beginCropTool('rectcrop'); });
 document.getElementById('btn-text').addEventListener('click', function () { setTool('text'); });
 document.getElementById('btn-brush').addEventListener('click', function () { setTool('brush'); });
@@ -3758,6 +3787,7 @@ document.getElementById('layer-rot').addEventListener('change', pushHistorySnaps
 
 document.getElementById('img-crop-mode').addEventListener('change', function () {
   state.cropMode = this.value;
+  document.getElementById('toolbar-crop-select').value = this.value;
   if (state.tool === 'lasso') {
     if (this.value === 'polygon') setStatus('Polygon crop: click to place points, double-click or Enter to finish');
     else if (this.value === 'bezier') setStatus('Bezier crop: click to place curve points, double-click or Enter to finish');
