@@ -494,6 +494,7 @@ input[type="range"]{
         <select class="field font-select" id="img-crop-mode">
           <option value="smooth">Free Crop: Smooth</option>
           <option value="polygon">Free Crop: Polygon</option>
+          <option value="bezier">Free Crop: Bezier</option>
         </select>
         <select class="field font-select" id="img-blend-mode">
           <option value="source-over">Blend: Normal</option>
@@ -521,6 +522,10 @@ input[type="range"]{
           <option value="newspaper">Dither: Newspaper</option>
           <option value="coarse">Dither: Coarse</option>
         </select>
+        <div class="row"><label>Ink Spread</label><span class="value" id="img-dither-ink-val">0</span></div>
+        <input type="range" id="img-dither-ink" min="0" max="100" value="0">
+        <div class="row"><label>Newsprint Tint</label><span class="value" id="img-dither-tint-val">0</span></div>
+        <input type="range" id="img-dither-tint" min="0" max="100" value="0">
         <select class="field font-select" id="img-dither-color-mode">
           <option value="mono">Dither Color: Monochrome</option>
           <option value="keep">Dither Color: Keep Color</option>
@@ -661,6 +666,7 @@ input[type="range"]{
       <div class="section">
         <h3>Paper Tones</h3>
         <div class="swatch-grid" id="paper-swatches"></div>
+        <input class="field" id="paper-color-custom" type="color" value="#f5f0e8" aria-label="Custom paper color">
       </div>
     </div>
   </div>
@@ -674,7 +680,7 @@ input[type="range"]{
 </div>
 
 <script>
-const PAPER_SWATCHES = ['#f5f0e8','#f0ece5','#efe7da','#f4f1ea','#ece5d7','#f7f3ec'];
+const PAPER_SWATCHES = ['#f5f0e8','#f0ece5','#efe7da','#f4f1ea','#ece5d7','#f7f3ec','#7d96bf','#294d74','#1f252d','#141414'];
 const DEFAULT_IMAGE_EFFECTS = {
   grain: 0,
   fade: 0,
@@ -684,6 +690,8 @@ const DEFAULT_IMAGE_EFFECTS = {
   edgeColor: '#111111',
   dither: 0,
   ditherMode: 'ordered',
+  ditherInk: 0,
+  ditherTint: 0,
   ditherColorMode: 'mono',
   ditherPixel: 1,
   blend: 'source-over'
@@ -841,6 +849,8 @@ function cloneEffects(fx) {
     edgeColor: (fx && fx.edgeColor) || '#111111',
     dither: Number((fx && fx.dither) || 0),
     ditherMode: (fx && fx.ditherMode) || 'ordered',
+    ditherInk: Number((fx && fx.ditherInk) || 0),
+    ditherTint: Number((fx && fx.ditherTint) || 0),
     ditherColorMode: (fx && fx.ditherColorMode) || 'mono',
     ditherPixel: Math.max(1, Number((fx && fx.ditherPixel) || 1)),
     blend: (fx && fx.blend) || 'source-over'
@@ -1067,6 +1077,8 @@ function syncPaperSwatches() {
     node.classList.toggle('active', isActive);
     node.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
+  const customInput = document.getElementById('paper-color-custom');
+  if (customInput) customInput.value = state.paperColor;
 }
 
 function hydrateLayer(plain) {
@@ -2244,6 +2256,53 @@ function gaussianNoise() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
+function mixChannel(a, b, t) {
+  return a * (1 - t) + b * t;
+}
+
+function chaikinSmoothPoints(points, closed, iterations) {
+  let current = clonePathPoints(points || []);
+  if (current.length < 3) return current;
+  const loops = Math.max(1, iterations || 2);
+  for (let iter = 0; iter < loops; iter++) {
+    if (current.length < 3) break;
+    const next = [];
+    if (closed) {
+      for (let i = 0; i < current.length; i++) {
+        const a = current[i];
+        const b = current[(i + 1) % current.length];
+        next.push(
+          { x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 },
+          { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 }
+        );
+      }
+    } else {
+      next.push(current[0]);
+      for (let i = 0; i < current.length - 1; i++) {
+        const a = current[i];
+        const b = current[i + 1];
+        next.push(
+          { x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 },
+          { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 }
+        );
+      }
+      next.push(current[current.length - 1]);
+    }
+    current = next;
+  }
+  return current;
+}
+
+function getCropPreviewPoints(preview, includeCurrent) {
+  if (!preview || preview.kind !== 'lasso') return [];
+  const points = clonePathPoints(preview.points || []);
+  if (includeCurrent && Number.isFinite(preview.currentX) && Number.isFinite(preview.currentY) && (preview.mode === 'polygon' || preview.mode === 'bezier')) {
+    points.push({ x: preview.currentX, y: preview.currentY });
+  }
+  if (preview.mode === 'bezier') return chaikinSmoothPoints(points, true, 2);
+  return points;
+}
+
 function hexToRgb(hex) {
   const value = String(hex || '#111111').replace('#', '');
   const normalized = value.length === 3 ? value.split('').map(function (ch) { return ch + ch; }).join('') : value;
@@ -2288,7 +2347,7 @@ function applyEdgeOverlay(octx, imageData, targetW, targetH, strength, colorHex)
   octx.putImageData(edgeData, 0, 0);
 }
 
-function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, colorMode, pixelSize) {
+function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, colorMode, pixelSize, inkSpread, tintAmount) {
   if (strength <= 0) return;
   const src = imageData.data;
   const outData = octx.createImageData(targetW, targetH);
@@ -2311,6 +2370,8 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, c
   ];
   const blend = Math.min(1, Math.max(0, strength));
   const px = Math.max(1, Math.round(pixelSize || 1));
+  const spread = Math.max(0, Math.min(1, (inkSpread || 0) / 100));
+  const tint = Math.max(0, Math.min(1, (tintAmount || 0) / 100));
   const matrix = mode === 'coarse' ? matrix8 : matrix4;
   const matrixSize = matrix.length;
   const matrixDiv = matrixSize * matrixSize;
@@ -2344,18 +2405,44 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, c
       let threshold;
       if (mode === 'newspaper') {
         threshold = 0.5 + snoise(bx * 0.031, by * 0.031) * 0.08;
+        threshold -= spread * 0.08;
       } else {
         threshold = (matrix[Math.floor(by / px) % matrixSize][Math.floor(bx / px) % matrixSize] + 0.5) / matrixDiv;
       }
       const d = centered > threshold ? 1 : 0;
       const target = d * 255;
       const alpha = Math.round(sumA / count);
+      const paperR = 245 - tint * 20;
+      const paperG = 242 - tint * 18;
+      const paperB = 234 - tint * 10;
+      const inkR = 17 + tint * 32;
+      const inkG = 17 + tint * 22;
+      const inkB = 17;
       for (let y = by; y < maxY; y++) {
         for (let x = bx; x < maxX; x++) {
           const idx = (y * targetW + x) * 4;
-          const baseR = colorMode === 'keep' ? (d ? 255 : avgR) : target;
-          const baseG = colorMode === 'keep' ? (d ? 255 : avgG) : target;
-          const baseB = colorMode === 'keep' ? (d ? 255 : avgB) : target;
+          let baseR, baseG, baseB;
+          if (colorMode === 'keep') {
+            if (d) {
+              baseR = paperR;
+              baseG = paperG;
+              baseB = paperB;
+            } else {
+              baseR = mixChannel(avgR, inkR, tint * 0.22);
+              baseG = mixChannel(avgG, inkG, tint * 0.16);
+              baseB = mixChannel(avgB, inkB, tint * 0.1);
+            }
+          } else {
+            if (d) {
+              baseR = paperR;
+              baseG = paperG;
+              baseB = paperB;
+            } else {
+              baseR = mixChannel(target, inkR, tint * 0.3);
+              baseG = mixChannel(target, inkG, tint * 0.24);
+              baseB = mixChannel(target, inkB, tint * 0.16);
+            }
+          }
           out[idx] = Math.round(src[idx] * (1 - blend) + baseR * blend);
           out[idx + 1] = Math.round(src[idx + 1] * (1 - blend) + baseG * blend);
           out[idx + 2] = Math.round(src[idx + 2] * (1 - blend) + baseB * blend);
@@ -2367,9 +2454,10 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, c
   if (mode === 'newspaper') {
     for (let i = 0; i < out.length; i += 4) {
       const grain = gaussianNoise() * (2 + blend * 10);
-      out[i] = clamp(out[i] + grain, 0, 255);
-      out[i + 1] = clamp(out[i + 1] + grain, 0, 255);
-      out[i + 2] = clamp(out[i + 2] + grain, 0, 255);
+      const bleed = gaussianNoise() * (spread * 8);
+      out[i] = clamp(out[i] + grain + bleed, 0, 255);
+      out[i + 1] = clamp(out[i + 1] + grain + bleed * 0.85, 0, 255);
+      out[i + 2] = clamp(out[i + 2] + grain + bleed * 0.65, 0, 255);
       out[i + 3] = clamp(out[i + 3], 0, 255);
     }
   }
@@ -2391,6 +2479,8 @@ function getProcessedImage(layer, renderScale) {
     fx.edgeColor,
     fx.dither,
     fx.ditherMode,
+    fx.ditherInk,
+    fx.ditherTint,
     fx.ditherColorMode,
     fx.ditherPixel
   ].join('|');
@@ -2463,7 +2553,18 @@ function getProcessedImage(layer, renderScale) {
 
   if (fx.dither > 0) {
     const ditherSource = octx.getImageData(0, 0, targetW, targetH);
-    applyDitherOverlay(octx, ditherSource, targetW, targetH, fx.dither / 100, fx.ditherMode, fx.ditherColorMode, fx.ditherPixel * scale);
+    applyDitherOverlay(
+      octx,
+      ditherSource,
+      targetW,
+      targetH,
+      fx.dither / 100,
+      fx.ditherMode,
+      fx.ditherColorMode,
+      fx.ditherPixel * scale,
+      fx.ditherInk || 0,
+      fx.ditherTint || 0
+    );
   }
 
   if (fx.edge > 0) {
@@ -2847,13 +2948,16 @@ function renderCropPreview() {
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 4]);
   if (state.cropPreview.kind === 'lasso' && state.cropPreview.points.length > 1) {
-    ctx.beginPath();
-    ctx.moveTo(state.cropPreview.points[0].x, state.cropPreview.points[0].y);
-    for (let i = 1; i < state.cropPreview.points.length; i++) ctx.lineTo(state.cropPreview.points[i].x, state.cropPreview.points[i].y);
-    if (state.cropPreview.mode === 'polygon' && Number.isFinite(state.cropPreview.currentX) && Number.isFinite(state.cropPreview.currentY)) {
-      ctx.lineTo(state.cropPreview.currentX, state.cropPreview.currentY);
+    const previewPoints = getCropPreviewPoints(state.cropPreview, true);
+    if (state.cropPreview.mode === 'bezier' && previewPoints.length > 2) {
+      drawSmoothPath(ctx, previewPoints, true);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(previewPoints[0].x, previewPoints[0].y);
+      for (let i = 1; i < previewPoints.length; i++) ctx.lineTo(previewPoints[i].x, previewPoints[i].y);
+      ctx.stroke();
     }
-    ctx.stroke();
   }
   if (state.cropPreview.kind === 'rect') {
     const r = getRectPreviewBounds(state.cropPreview);
@@ -3031,7 +3135,10 @@ function applyCurrentCrop() {
     return;
   }
   if (state.cropPreview.kind === 'lasso' && state.cropPreview.points.length > 2) {
-    layer.clip = state.cropPreview.points.map(function (point) { return toLayerLocal(layer, point); });
+    const cropPoints = state.cropPreview.mode === 'bezier'
+      ? chaikinSmoothPoints(state.cropPreview.points, true, 2)
+      : clonePathPoints(state.cropPreview.points);
+    layer.clip = cropPoints.map(function (point) { return toLayerLocal(layer, point); });
   }
   if (state.cropPreview.kind === 'rect') {
     const rect = getRectPreviewBounds(state.cropPreview);
@@ -3113,7 +3220,9 @@ function beginCropTool(tool) {
   }
   setTool(tool);
   if (tool === 'lasso') {
-    setStatus(state.cropMode === 'polygon' ? 'Polygon crop: click to place points, double-click or Enter to finish' : 'Smooth free crop ready');
+    if (state.cropMode === 'polygon') setStatus('Polygon crop: click to place points, double-click or Enter to finish');
+    else if (state.cropMode === 'bezier') setStatus('Bezier crop: click to place curve points, double-click or Enter to finish');
+    else setStatus('Smooth free crop ready');
   }
 }
 
@@ -3253,6 +3362,8 @@ function syncInspector() {
     document.getElementById('img-edge-color').value = fx.edgeColor || '#111111';
     document.getElementById('img-dither').value = fx.dither || 0;
     document.getElementById('img-dither-mode').value = fx.ditherMode || 'ordered';
+    document.getElementById('img-dither-ink').value = fx.ditherInk || 0;
+    document.getElementById('img-dither-tint').value = fx.ditherTint || 0;
     document.getElementById('img-dither-color-mode').value = fx.ditherColorMode || 'mono';
     document.getElementById('img-dither-pixel').value = fx.ditherPixel || 1;
     document.getElementById('img-border').value = active.borderWidth || 0;
@@ -3263,6 +3374,8 @@ function syncInspector() {
     syncRangeValue('blur-val', fx.blur);
     syncRangeValue('edge-val', fx.edge || 0);
     syncRangeValue('img-dither-val', fx.dither || 0);
+    syncRangeValue('img-dither-ink-val', fx.ditherInk || 0);
+    syncRangeValue('img-dither-tint-val', fx.ditherTint || 0);
     syncRangeValue('img-dither-pixel-val', fx.ditherPixel || 1);
     syncRangeValue('img-border-val', active.borderWidth || 0);
   } else if (active.type === 'text' || (active.type === 'path' && active.pathKind === 'textpath')) {
@@ -3397,9 +3510,9 @@ canvas.addEventListener('mousedown', function (e) {
   } else if (state.tool === 'lasso') {
     const activeImage = getActiveLayer();
     if (!activeImage || activeImage.type !== 'image') return;
-    if (state.cropMode === 'polygon') {
-      if (!state.cropPreview || state.cropPreview.kind !== 'lasso' || state.cropPreview.mode !== 'polygon' || state.cropPreview.layerId !== activeImage.id) {
-        state.cropPreview = { kind: 'lasso', mode: 'polygon', layerId: activeImage.id, points: [{ x: p.x, y: p.y }], currentX: p.x, currentY: p.y };
+    if (state.cropMode === 'polygon' || state.cropMode === 'bezier') {
+      if (!state.cropPreview || state.cropPreview.kind !== 'lasso' || state.cropPreview.mode !== state.cropMode || state.cropPreview.layerId !== activeImage.id) {
+        state.cropPreview = { kind: 'lasso', mode: state.cropMode, layerId: activeImage.id, points: [{ x: p.x, y: p.y }], currentX: p.x, currentY: p.y };
       } else {
         state.cropPreview.points.push({ x: p.x, y: p.y });
         state.cropPreview.currentX = p.x;
@@ -3428,6 +3541,11 @@ canvas.addEventListener('mousemove', function (e) {
   const p = canvasPoint(e);
   document.getElementById('status-pos').textContent = Math.round(p.x) + ', ' + Math.round(p.y);
   if (state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon') {
+    state.cropPreview.currentX = p.x;
+    state.cropPreview.currentY = p.y;
+    render();
+  }
+  if (state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'bezier') {
     state.cropPreview.currentX = p.x;
     state.cropPreview.currentY = p.y;
     render();
@@ -3508,7 +3626,7 @@ canvas.addEventListener('mousemove', function (e) {
 
 canvas.addEventListener('mouseup', function () {
   pointerDown = false;
-  if (state.cropPreview && !(state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon')) applyCurrentCrop();
+  if (state.cropPreview && !(state.cropPreview.kind === 'lasso' && (state.cropPreview.mode === 'polygon' || state.cropPreview.mode === 'bezier'))) applyCurrentCrop();
   if (drawPreview) {
     addPathLayer(drawPreview.kind, drawPreview.points);
     drawPreview = null;
@@ -3534,7 +3652,7 @@ canvas.addEventListener('mouseleave', function () {
 });
 
 canvas.addEventListener('dblclick', function (e) {
-  if (state.tool === 'lasso' && state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon') {
+  if (state.tool === 'lasso' && state.cropPreview && state.cropPreview.kind === 'lasso' && (state.cropPreview.mode === 'polygon' || state.cropPreview.mode === 'bezier')) {
     if (state.cropPreview.points.length > 2) applyCurrentCrop();
     return;
   }
@@ -3641,7 +3759,9 @@ document.getElementById('layer-rot').addEventListener('change', pushHistorySnaps
 document.getElementById('img-crop-mode').addEventListener('change', function () {
   state.cropMode = this.value;
   if (state.tool === 'lasso') {
-    setStatus(this.value === 'polygon' ? 'Polygon crop: click to place points, double-click or Enter to finish' : 'Smooth free crop ready');
+    if (this.value === 'polygon') setStatus('Polygon crop: click to place points, double-click or Enter to finish');
+    else if (this.value === 'bezier') setStatus('Bezier crop: click to place curve points, double-click or Enter to finish');
+    else setStatus('Smooth free crop ready');
   }
 });
 
@@ -3691,15 +3811,22 @@ document.getElementById('img-dither-color-mode').addEventListener('change', func
   document.getElementById(id).addEventListener('change', pushHistorySnapshot);
 });
 
-document.getElementById('img-dither-pixel').addEventListener('input', function () {
-  const active = getActiveLayer();
-  if (!active || active.type !== 'image') return;
-  active.effects.ditherPixel = Number(this.value);
-  active._cacheKey = null;
-  syncRangeValue('img-dither-pixel-val', this.value);
-  render();
+['img-dither-ink', 'img-dither-tint', 'img-dither-pixel'].forEach(function (id) {
+  const map = {
+    'img-dither-ink': ['ditherInk', 'img-dither-ink-val'],
+    'img-dither-tint': ['ditherTint', 'img-dither-tint-val'],
+    'img-dither-pixel': ['ditherPixel', 'img-dither-pixel-val']
+  };
+  document.getElementById(id).addEventListener('input', function () {
+    const active = getActiveLayer();
+    if (!active || active.type !== 'image') return;
+    active.effects[map[id][0]] = Number(this.value);
+    active._cacheKey = null;
+    syncRangeValue(map[id][1], id === 'img-dither-pixel' ? Number(this.value) : this.value);
+    render();
+  });
+  document.getElementById(id).addEventListener('change', pushHistorySnapshot);
 });
-document.getElementById('img-dither-pixel').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('img-edge-color').addEventListener('input', function () {
   const active = getActiveLayer();
@@ -4078,6 +4205,13 @@ PAPER_SWATCHES.forEach(function (color, idx) {
   paperSwatches.appendChild(sw);
 });
 
+document.getElementById('paper-color-custom').addEventListener('input', function () {
+  state.paperColor = this.value;
+  syncPaperSwatches();
+  render();
+});
+document.getElementById('paper-color-custom').addEventListener('change', pushHistorySnapshot);
+
 document.getElementById('btn-export').addEventListener('click', function () {
   const prevActive = state.activeId;
   const prevSelection = getSelectedLayerIds();
@@ -4159,7 +4293,7 @@ document.addEventListener('keydown', function (e) {
     }
     deleteLayer(getSelectedLayerIds());
   }
-  if (e.key === 'Enter' && state.cropPreview && state.cropPreview.kind === 'lasso' && state.cropPreview.mode === 'polygon') {
+  if (e.key === 'Enter' && state.cropPreview && state.cropPreview.kind === 'lasso' && (state.cropPreview.mode === 'polygon' || state.cropPreview.mode === 'bezier')) {
     e.preventDefault();
     if (state.cropPreview.points.length > 2) applyCurrentCrop();
     return;
@@ -4176,6 +4310,7 @@ window.addEventListener('resize', fitCanvas);
 
 fitCanvas();
 updateHint();
+syncPaperSwatches();
 pushHistorySnapshot();
 updateHistoryButtons();
 syncInspector();
