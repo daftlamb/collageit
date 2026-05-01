@@ -513,12 +513,8 @@ input[type="range"]{
         <div class="row"><label>Edge Stroke</label><span class="value" id="edge-val">0</span></div>
         <input type="range" id="img-edge" min="0" max="100" value="0">
         <input class="field" id="img-edge-color" type="color" value="#111111">
-        <div class="row"><label>Torn Edge</label><span class="value" id="img-torn-val">0</span></div>
-        <input type="range" id="img-torn" min="0" max="100" value="0">
-        <div class="row"><label>Fiber</label><span class="value" id="img-fiber-val">0</span></div>
-        <input type="range" id="img-fiber" min="0" max="100" value="0">
-        <div class="row"><label>Shadow</label><span class="value" id="img-tear-shadow-val">0</span></div>
-        <input type="range" id="img-tear-shadow" min="0" max="100" value="0">
+        <div class="row"><label>Dither</label><span class="value" id="img-dither-val">0</span></div>
+        <input type="range" id="img-dither" min="0" max="100" value="0">
         <div class="row"><label>Border</label><span class="value" id="img-border-val">0</span></div>
         <input type="range" id="img-border" min="0" max="32" value="0">
         <input class="field" id="img-border-color" type="color" value="#111111">
@@ -674,9 +670,7 @@ const DEFAULT_IMAGE_EFFECTS = {
   blur: 0,
   edge: 0,
   edgeColor: '#111111',
-  torn: 0,
-  fiber: 0,
-  tearShadow: 0,
+  dither: 0,
   blend: 'source-over'
 };
 const state = {
@@ -830,9 +824,7 @@ function cloneEffects(fx) {
     blur: Number((fx && fx.blur) || 0),
     edge: Number((fx && fx.edge) || 0),
     edgeColor: (fx && fx.edgeColor) || '#111111',
-    torn: Number((fx && fx.torn) || 0),
-    fiber: Number((fx && fx.fiber) || 0),
-    tearShadow: Number((fx && fx.tearShadow) || 0),
+    dither: Number((fx && fx.dither) || 0),
     blend: (fx && fx.blend) || 'source-over'
   };
 }
@@ -1450,223 +1442,6 @@ function getLineRenderWidth(line, layer) {
   const baseWidth = measureCtx.measureText(line || ' ').width;
   const spacingExtra = Math.max(0, (line || ' ').length - 1) * layer.letterSpacing;
   return baseWidth + spacingExtra;
-}
-
-function getImageOutlinePoints(layer) {
-  if (layer.clip && layer.clip.length > 2) return cloneClip(layer.clip);
-  return [
-    { x: -layer.w / 2, y: -layer.h / 2 },
-    { x: layer.w / 2, y: -layer.h / 2 },
-    { x: layer.w / 2, y: layer.h / 2 },
-    { x: -layer.w / 2, y: layer.h / 2 }
-  ];
-}
-
-function buildPath2DFromPoints(points, closePath) {
-  const path = new Path2D();
-  if (!points || !points.length) return path;
-  if (points.length < 3) {
-    path.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) path.lineTo(points[i].x, points[i].y);
-    if (closePath !== false) path.closePath();
-    return path;
-  }
-  if (closePath === false) {
-    path.moveTo(points[0].x, points[0].y);
-    for (let i = 0; i < points.length - 1; i++) {
-      const next = points[i + 1];
-      const mid = { x: (points[i].x + next.x) * 0.5, y: (points[i].y + next.y) * 0.5 };
-      if (i === 0) path.lineTo(mid.x, mid.y);
-      else path.quadraticCurveTo(points[i].x, points[i].y, mid.x, mid.y);
-    }
-    path.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-    return path;
-  }
-  const firstMid = {
-    x: (points[0].x + points[1].x) * 0.5,
-    y: (points[0].y + points[1].y) * 0.5
-  };
-  path.moveTo(firstMid.x, firstMid.y);
-  for (let i = 1; i <= points.length; i++) {
-    const curr = points[i % points.length];
-    const prev = points[(i - 1 + points.length) % points.length];
-    const mid = { x: (prev.x + curr.x) * 0.5, y: (prev.y + curr.y) * 0.5 };
-    path.quadraticCurveTo(curr.x, curr.y, mid.x, mid.y);
-  }
-  return path;
-}
-
-function getPolygonCentroid(points) {
-  if (!points || !points.length) return { x: 0, y: 0 };
-  let x = 0;
-  let y = 0;
-  for (let i = 0; i < points.length; i++) {
-    x += points[i].x;
-    y += points[i].y;
-  }
-  return { x: x / points.length, y: y / points.length };
-}
-
-function sampleTornEdge(a, b, centroid, seed, edgeIndex, options) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len = Math.max(1, Math.hypot(dx, dy));
-  const tx = dx / len;
-  const ty = dy / len;
-  const baseNx = -ty;
-  const baseNy = tx;
-  const midX = (a.x + b.x) * 0.5;
-  const midY = (a.y + b.y) * 0.5;
-  const toCenterX = centroid.x - midX;
-  const toCenterY = centroid.y - midY;
-  const inwardSign = (baseNx * toCenterX + baseNy * toCenterY) >= 0 ? 1 : -1;
-  const nx = baseNx * inwardSign;
-  const ny = baseNy * inwardSign;
-  const steps = Math.max(4, Math.round(len / options.segment));
-  const points = [];
-  for (let s = 0; s <= steps; s++) {
-    const t = s / steps;
-    const px = a.x + dx * t;
-    const py = a.y + dy * t;
-    const low = snoise(seed * 0.011 + edgeIndex * 7.3 + t * options.freqA, seed * 0.017 + edgeIndex * 3.1);
-    const med = snoise(seed * 0.023 + edgeIndex * 11.7 + t * options.freqB, seed * 0.013 + edgeIndex * 4.9);
-    const wave = Math.sin(t * Math.PI * options.waveCount + edgeIndex * 0.7) * 0.25;
-    let inward = (low * 0.7 + med * 0.3 + wave) * options.amplitude;
-    if (options.biasInward) inward = Math.abs(inward) + options.amplitude * 0.2;
-    const tangent = med * options.tangent;
-    points.push({
-      x: px + nx * inward + tx * tangent,
-      y: py + ny * inward + ty * tangent
-    });
-  }
-  return points;
-}
-
-function buildRectTornOutline(layer, fx, seed) {
-  const x = -layer.w / 2;
-  const y = -layer.h / 2;
-  const w = layer.w;
-  const h = layer.h;
-  const rand = function (n) { return (snoise(seed * 0.01 + n * 13.7, seed * 0.02 + n * 7.1) + 1) * 0.5; };
-  const tl = { x: x + w * (0.04 + rand(1) * 0.05), y: y + h * (0.01 + rand(2) * 0.03) };
-  const tr = { x: x + w * (0.96 - rand(3) * 0.03), y: y + h * (0.02 + rand(4) * 0.04) };
-  const br = { x: x + w * (0.9 + rand(5) * 0.06), y: y + h * (0.95 - rand(6) * 0.02) };
-  const bl = { x: x + w * (0.03 + rand(7) * 0.03), y: y + h * (0.98 - rand(8) * 0.02) };
-  const corners = [tl, tr, br, bl];
-  const centroid = getPolygonCentroid(corners);
-  const amp = 2 + fx.torn * 0.08;
-  const top = sampleTornEdge(tl, tr, centroid, seed, 0, {
-    segment: 26,
-    amplitude: amp * 1.15,
-    tangent: amp * 0.18,
-    freqA: 1.9,
-    freqB: 4.4,
-    waveCount: 4.2,
-    biasInward: true
-  });
-  const right = sampleTornEdge(tr, br, centroid, seed, 1, {
-    segment: 34,
-    amplitude: amp * 0.2,
-    tangent: amp * 0.08,
-    freqA: 1.5,
-    freqB: 3.2,
-    waveCount: 2.1,
-    biasInward: false
-  });
-  const bottom = sampleTornEdge(br, bl, centroid, seed, 2, {
-    segment: 28,
-    amplitude: amp * 0.45,
-    tangent: amp * 0.12,
-    freqA: 1.7,
-    freqB: 3.5,
-    waveCount: 2.7,
-    biasInward: true
-  });
-  const left = sampleTornEdge(bl, tl, centroid, seed, 3, {
-    segment: 36,
-    amplitude: amp * 0.18,
-    tangent: amp * 0.08,
-    freqA: 1.3,
-    freqB: 2.9,
-    waveCount: 2.0,
-    biasInward: false
-  });
-  return top.concat(right.slice(1), bottom.slice(1), left.slice(1));
-}
-
-function buildTornOutlinePoints(layer) {
-  const fx = cloneEffects(layer.effects);
-  if (fx.torn <= 0) return getImageOutlinePoints(layer);
-  const seed = hashString((layer.src || layer.name || 'image') + '|' + layer.w + '|' + layer.h);
-  if (!layer.clip || layer.clip.length < 3) return buildRectTornOutline(layer, fx, seed);
-  const outline = getImageOutlinePoints(layer);
-  const centroid = getPolygonCentroid(outline);
-  const spacing = Math.max(12, 34 - fx.torn * 0.18);
-  const amp = 1.1 + fx.torn * 0.045;
-  const result = [];
-  for (let i = 0; i < outline.length; i++) {
-    const a = outline[i];
-    const b = outline[(i + 1) % outline.length];
-    const edgePoints = sampleTornEdge(a, b, centroid, seed, i, {
-      segment: spacing,
-      amplitude: amp,
-      tangent: amp * 0.06,
-      freqA: 1.35,
-      freqB: 2.7,
-      waveCount: 1.8,
-      biasInward: true
-    });
-    if (i > 0) edgePoints.shift();
-    result.push.apply(result, edgePoints);
-  }
-  return result;
-}
-
-function renderTornImageLayer(drawCtx, layer, imgCanvas) {
-  const fx = cloneEffects(layer.effects);
-  const tornPoints = buildTornOutlinePoints(layer);
-  const tornPath = buildPath2DFromPoints(tornPoints, true);
-  if (fx.tearShadow > 0) {
-    drawCtx.save();
-    drawCtx.shadowColor = 'rgba(20,16,12,' + (0.08 + fx.tearShadow / 320).toFixed(3) + ')';
-    drawCtx.shadowBlur = 2 + fx.tearShadow * 0.12;
-    drawCtx.shadowOffsetY = 1 + fx.tearShadow * 0.05;
-    drawCtx.strokeStyle = 'rgba(20,16,12,0.08)';
-    drawCtx.lineWidth = Math.max(1.4, 2 + fx.tearShadow * 0.06);
-    drawCtx.stroke(tornPath);
-    drawCtx.restore();
-  }
-
-  drawCtx.save();
-  drawCtx.clip(tornPath);
-  drawCtx.globalCompositeOperation = fx.blend || 'source-over';
-  drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
-  drawCtx.restore();
-  drawCtx.globalCompositeOperation = 'source-over';
-
-  if (fx.fiber > 0 || fx.torn > 0) {
-    drawCtx.save();
-    drawCtx.strokeStyle = state.paperColor;
-    drawCtx.lineJoin = 'round';
-    drawCtx.lineCap = 'round';
-    drawCtx.globalAlpha = 0.55;
-    drawCtx.lineWidth = Math.max(1.2, 1.4 + fx.fiber * 0.05 + fx.torn * 0.03);
-    drawCtx.stroke(tornPath);
-    if (fx.fiber > 0) {
-      drawCtx.globalAlpha = 0.24 + fx.fiber / 420;
-      drawCtx.lineWidth += 1 + fx.fiber * 0.035;
-      drawCtx.stroke(tornPath);
-    }
-    drawCtx.restore();
-  }
-
-  if (layer.borderWidth > 0) {
-    drawCtx.save();
-    drawCtx.lineWidth = layer.borderWidth;
-    drawCtx.strokeStyle = layer.borderColor || '#111111';
-    drawCtx.stroke(tornPath);
-    drawCtx.restore();
-  }
 }
 
 function getPathPointWorld(layer, point) {
@@ -2495,6 +2270,40 @@ function applyEdgeOverlay(octx, imageData, targetW, targetH, strength, colorHex)
   octx.putImageData(edgeData, 0, 0);
 }
 
+function applyDitherOverlay(octx, imageData, targetW, targetH, strength) {
+  if (strength <= 0) return;
+  const src = imageData.data;
+  const outData = octx.createImageData(targetW, targetH);
+  const out = outData.data;
+  const matrix = [
+    [0, 8, 2, 10],
+    [12, 4, 14, 6],
+    [3, 11, 1, 9],
+    [15, 7, 13, 5]
+  ];
+  const blend = Math.min(1, Math.max(0, strength));
+  const contrast = 0.82 + blend * 0.55;
+  for (let y = 0; y < targetH; y++) {
+    for (let x = 0; x < targetW; x++) {
+      const idx = (y * targetW + x) * 4;
+      const r = src[idx];
+      const g = src[idx + 1];
+      const b = src[idx + 2];
+      const a = src[idx + 3];
+      const luma = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+      const centered = (luma - 0.5) * contrast + 0.5;
+      const threshold = (matrix[y % 4][x % 4] + 0.5) / 16;
+      const d = centered > threshold ? 1 : 0;
+      const target = d * 255;
+      out[idx] = Math.round(r * (1 - blend) + target * blend);
+      out[idx + 1] = Math.round(g * (1 - blend) + target * blend);
+      out[idx + 2] = Math.round(b * (1 - blend) + target * blend);
+      out[idx + 3] = a;
+    }
+  }
+  octx.putImageData(outData, 0, 0);
+}
+
 function getProcessedImage(layer, renderScale) {
   const fx = cloneEffects(layer.effects);
   const scale = renderScale || 1;
@@ -2507,7 +2316,8 @@ function getProcessedImage(layer, renderScale) {
     fx.tint,
     fx.blur,
     fx.edge,
-    fx.edgeColor
+    fx.edgeColor,
+    fx.dither
   ].join('|');
   if (layer._cacheKey === key && layer._cacheCanvas) return layer._cacheCanvas;
 
@@ -2574,6 +2384,11 @@ function getProcessedImage(layer, renderScale) {
       gd[i + 2] = clamp(Math.round(gd[i + 2] + noise), 0, 255);
     }
     octx.putImageData(grainData, 0, 0);
+  }
+
+  if (fx.dither > 0) {
+    const ditherSource = octx.getImageData(0, 0, targetW, targetH);
+    applyDitherOverlay(octx, ditherSource, targetW, targetH, fx.dither / 100);
   }
 
   if (fx.edge > 0) {
@@ -3025,19 +2840,13 @@ function renderScene(targetCtx, renderScale) {
     drawCtx.save();
     drawCtx.translate(layer.x + layer.w / 2, layer.y + layer.h / 2);
     drawCtx.rotate(layer.rot);
-    const imageFx = layer.type === 'image' ? cloneEffects(layer.effects) : null;
-    const useTornEdge = !!(imageFx && imageFx.torn > 0);
-    if (layer.clip && layer.clip.length > 2 && !useTornEdge) applyClipPath(drawCtx, layer.clip);
+    if (layer.clip && layer.clip.length > 2) applyClipPath(drawCtx, layer.clip);
     if (layer.type === 'image') {
       const imgCanvas = getProcessedImage(layer, imageScale);
-      if (useTornEdge) {
-        renderTornImageLayer(drawCtx, layer, imgCanvas);
-      } else {
-        drawCtx.globalCompositeOperation = (layer.effects && layer.effects.blend) || 'source-over';
-        drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
-        drawCtx.globalCompositeOperation = 'source-over';
-      }
-      if (!useTornEdge && layer.borderWidth > 0) {
+      drawCtx.globalCompositeOperation = (layer.effects && layer.effects.blend) || 'source-over';
+      drawCtx.drawImage(imgCanvas, -layer.w / 2, -layer.h / 2, layer.w, layer.h);
+      drawCtx.globalCompositeOperation = 'source-over';
+      if (layer.borderWidth > 0) {
         drawCtx.lineWidth = layer.borderWidth;
         drawCtx.strokeStyle = layer.borderColor || '#111111';
         if (layer.clip && layer.clip.length > 2) {
@@ -3358,9 +3167,7 @@ function syncInspector() {
     document.getElementById('img-blur').value = fx.blur;
     document.getElementById('img-edge').value = fx.edge || 0;
     document.getElementById('img-edge-color').value = fx.edgeColor || '#111111';
-    document.getElementById('img-torn').value = fx.torn || 0;
-    document.getElementById('img-fiber').value = fx.fiber || 0;
-    document.getElementById('img-tear-shadow').value = fx.tearShadow || 0;
+    document.getElementById('img-dither').value = fx.dither || 0;
     document.getElementById('img-border').value = active.borderWidth || 0;
     document.getElementById('img-border-color').value = active.borderColor || '#111111';
     syncRangeValue('grain-val', fx.grain);
@@ -3368,9 +3175,7 @@ function syncInspector() {
     syncRangeValue('tint-val', fx.tint);
     syncRangeValue('blur-val', fx.blur);
     syncRangeValue('edge-val', fx.edge || 0);
-    syncRangeValue('img-torn-val', fx.torn || 0);
-    syncRangeValue('img-fiber-val', fx.fiber || 0);
-    syncRangeValue('img-tear-shadow-val', fx.tearShadow || 0);
+    syncRangeValue('img-dither-val', fx.dither || 0);
     syncRangeValue('img-border-val', active.borderWidth || 0);
   } else if (active.type === 'text' || (active.type === 'path' && active.pathKind === 'textpath')) {
     document.getElementById('text-content').value = active.text;
@@ -3760,16 +3565,14 @@ document.getElementById('img-blend-mode').addEventListener('change', function ()
   pushHistorySnapshot();
 });
 
-['img-grain', 'img-fade', 'img-tint', 'img-blur', 'img-edge', 'img-torn', 'img-fiber', 'img-tear-shadow'].forEach(function (id) {
+['img-grain', 'img-fade', 'img-tint', 'img-blur', 'img-edge', 'img-dither'].forEach(function (id) {
   const map = {
     'img-grain': ['grain', 'grain-val'],
     'img-fade': ['fade', 'fade-val'],
     'img-tint': ['tint', 'tint-val'],
     'img-blur': ['blur', 'blur-val'],
     'img-edge': ['edge', 'edge-val'],
-    'img-torn': ['torn', 'img-torn-val'],
-    'img-fiber': ['fiber', 'img-fiber-val'],
-    'img-tear-shadow': ['tearShadow', 'img-tear-shadow-val']
+    'img-dither': ['dither', 'img-dither-val']
   };
   document.getElementById(id).addEventListener('input', function () {
     const active = getActiveLayer();
