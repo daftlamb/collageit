@@ -2353,9 +2353,9 @@ function applyDitherOverlay(octx, imageData, targetW, targetH, strength, mode, c
       for (let y = by; y < maxY; y++) {
         for (let x = bx; x < maxX; x++) {
           const idx = (y * targetW + x) * 4;
-          const baseR = colorMode === 'keep' ? (d ? avgR : 255) : target;
-          const baseG = colorMode === 'keep' ? (d ? avgG : 255) : target;
-          const baseB = colorMode === 'keep' ? (d ? avgB : 255) : target;
+          const baseR = colorMode === 'keep' ? (d ? 255 : avgR) : target;
+          const baseG = colorMode === 'keep' ? (d ? 255 : avgG) : target;
+          const baseB = colorMode === 'keep' ? (d ? 255 : avgB) : target;
           out[idx] = Math.round(src[idx] * (1 - blend) + baseR * blend);
           out[idx + 1] = Math.round(src[idx + 1] * (1 - blend) + baseG * blend);
           out[idx + 2] = Math.round(src[idx + 2] * (1 - blend) + baseB * blend);
@@ -3144,7 +3144,16 @@ function updateLayerPanel() {
       const tc = document.createElement('canvas');
       tc.width = 30;
       tc.height = 30;
-      tc.getContext('2d').drawImage(layer.img, 0, 0, 30, 30);
+      const tctx = tc.getContext('2d');
+      const iw = layer.img.naturalWidth || layer.img.width || 1;
+      const ih = layer.img.naturalHeight || layer.img.height || 1;
+      const scale = Math.min(26 / iw, 26 / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      const dx = (30 - dw) * 0.5;
+      const dy = (30 - dh) * 0.5;
+      tctx.clearRect(0, 0, 30, 30);
+      tctx.drawImage(layer.img, dx, dy, dw, dh);
       thumb = '<img class="layer-thumb" src="' + tc.toDataURL() + '" alt="">';
     } else if (layer.type === 'text') {
       thumb = '<div class="layer-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#fffaf2;background:#d98f37">T</div>';
