@@ -8,6 +8,55 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Space+Grotesk:wght@400;500&family=Bebas+Neue&family=Caveat:wght@400;600&family=Playfair+Display:wght@400;500;600&family=DM+Serif+Display&family=Inter:wght@400;500;600&family=Manrope:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500&family=ZCOOL+XiaoWei&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;500&display=swap" rel="stylesheet">
 <style>
+@font-face{
+  font-family:'Andrea Bellarosa';
+  src:url('assets/fonts/Andrea-Bellarosa.ttf') format('truetype');
+}
+@font-face{
+  font-family:'Aquiline Two';
+  src:url('assets/fonts/AquilineTwo.ttf') format('truetype');
+}
+@font-face{
+  font-family:'Brittany Signature';
+  src:url('assets/fonts/BrittanySignature.ttf') format('truetype');
+}
+@font-face{
+  font-family:'Bucklane Script';
+  src:url('assets/fonts/BucklaneScript.otf') format('opentype');
+}
+@font-face{
+  font-family:'Chicago Athletic Slab Serif 2';
+  src:url('assets/fonts/Chicago-Athletic-Slab-Serif-2.ttf') format('truetype');
+}
+@font-face{
+  font-family:'Chicago Athletic';
+  src:url('assets/fonts/Chicago-Athletic.ttf') format('truetype');
+}
+@font-face{
+  font-family:'Geraldyn Brushko';
+  src:url('assets/fonts/Geraldyn-Brushko.woff2') format('woff2');
+}
+@font-face{
+  font-family:'Geraldyn Brushko Italic';
+  src:url('assets/fonts/Geraldyn-Brushko-Italic.woff2') format('woff2');
+  font-style:italic;
+}
+@font-face{
+  font-family:'Jersey M54';
+  src:url('assets/fonts/Jersey-M54.ttf') format('truetype');
+}
+@font-face{
+  font-family:'La Monarchie de Saint Ombre';
+  src:url('assets/fonts/La-Monarchie-de-Saint-Ombre.ttf') format('truetype');
+}
+@font-face{
+  font-family:'Nice Gourmet Script Trial';
+  src:url('assets/fonts/Nice-Gourmet-Script-Trial.otf') format('opentype');
+}
+@font-face{
+  font-family:'Peristiwa';
+  src:url('assets/fonts/Peristiwa.otf') format('opentype');
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root{
   --bg:#f3efe7;
@@ -574,6 +623,18 @@ input[type="range"]{
             <option value="DM Serif Display">DM Serif Display</option>
             <option value="Bebas Neue">Bebas Neue</option>
             <option value="Caveat">Caveat</option>
+            <option value="Andrea Bellarosa">Andrea Bellarosa</option>
+            <option value="Aquiline Two">Aquiline Two</option>
+            <option value="Brittany Signature">Brittany Signature</option>
+            <option value="Bucklane Script">Bucklane Script</option>
+            <option value="Chicago Athletic">Chicago Athletic</option>
+            <option value="Chicago Athletic Slab Serif 2">Chicago Athletic Slab Serif 2</option>
+            <option value="Geraldyn Brushko">Geraldyn Brushko</option>
+            <option value="Geraldyn Brushko Italic">Geraldyn Brushko Italic</option>
+            <option value="Jersey M54">Jersey M54</option>
+            <option value="La Monarchie de Saint Ombre">La Monarchie de Saint Ombre</option>
+            <option value="Nice Gourmet Script Trial">Nice Gourmet Script Trial</option>
+            <option value="Peristiwa">Peristiwa</option>
             <option value="ZCOOL XiaoWei">ZCOOL XiaoWei</option>
             <option value="Ma Shan Zheng">Ma Shan Zheng</option>
             <option value="Noto Sans SC">Noto Sans SC</option>
@@ -2973,7 +3034,7 @@ function renderCropPreview() {
   if (state.cropPreview.kind === 'lasso' && state.cropPreview.points.length > 1) {
     const previewPoints = getCropPreviewPoints(state.cropPreview, true);
     if (state.cropPreview.mode === 'bezier' && previewPoints.length > 2) {
-      drawSmoothPath(ctx, previewPoints, true);
+      drawSmoothPath(ctx, previewPoints, false);
       ctx.stroke();
     } else {
       ctx.beginPath();
@@ -3011,8 +3072,7 @@ function renderDrawPreview() {
   ctx.lineWidth = drawPreview.kind === 'blob' ? 3 : 2;
   ctx.setLineDash([6, 5]);
   if (drawPreview.kind === 'blob') {
-    drawSmoothPath(ctx, drawPreview.points, true);
-    ctx.fill();
+    drawSmoothPath(ctx, drawPreview.points, false);
     ctx.stroke();
   } else if (drawPreview.kind === 'line') {
     ctx.beginPath();
