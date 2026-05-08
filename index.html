@@ -112,6 +112,21 @@ button,input,select,textarea{font:inherit}
   cursor:pointer;
   transition:background .15s,border-color .15s,color .15s,transform .15s;
 }
+.support-btn{
+  background:#e07820;
+  border:1px solid #e07820;
+  color:#fff;
+  padding:6px 11px;
+  border-radius:999px;
+  font-family:inherit;
+  font-size:11px;
+  font-weight:500;
+  cursor:pointer;
+  line-height:1;
+  white-space:nowrap;
+  transition:background .15s,border-color .15s;
+}
+.support-btn:hover{ background:#c96512; border-color:#c96512; }
 .tool-btn,.action-btn{
   height:32px;
   padding:0 12px;
@@ -353,6 +368,66 @@ button,input,select,textarea{font:inherit}
   font-size:11px;
 }
 #statusbar span{ white-space:nowrap; }
+.support-modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.42);
+  z-index:1000;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+.support-modal.is-open{ display:flex; }
+.support-card{
+  position:relative;
+  width:min(360px,100%);
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:22px 22px 20px;
+  box-shadow:0 24px 60px rgba(0,0,0,0.16);
+}
+.support-close{
+  position:absolute;
+  top:12px;
+  right:12px;
+  background:none;
+  border:none;
+  color:var(--muted);
+  font-size:18px;
+  line-height:1;
+  cursor:pointer;
+  padding:4px;
+}
+.support-close:hover{ color:var(--text); }
+.support-card h3{
+  font-size:16px;
+  font-weight:500;
+  margin-bottom:8px;
+}
+.support-card p{
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.6;
+  margin-bottom:10px;
+}
+.support-qr{
+  display:block;
+  width:min(240px,100%);
+  aspect-ratio:1;
+  margin:14px auto 12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#fff;
+  object-fit:cover;
+}
+.support-caption{
+  text-align:center;
+  font-size:11px;
+  color:var(--muted);
+  margin:0;
+}
 .row{
   display:flex;
   align-items:center;
@@ -510,7 +585,7 @@ input[type="range"]{
   </select>
   <button class="action-btn primary" id="btn-export">Export PNG</button>
   <div id="toolbar-spacer"></div>
-  <div class="pill">simple collage relationships, not precision masking</div>
+  <button class="support-btn" id="btn-support" type="button">Support me / 支持我</button>
 </div>
 
 <div id="main">
@@ -761,6 +836,17 @@ input[type="range"]{
   <span id="status-layer">No layer selected</span>
   <span id="status-pos"></span>
   <span id="status-text">Ready</span>
+</div>
+
+<div class="support-modal" id="support-modal" aria-hidden="true">
+  <div class="support-card" role="dialog" aria-modal="true" aria-labelledby="support-title">
+    <button class="support-close" id="support-close" type="button" aria-label="Close">x</button>
+    <h3 id="support-title">Support Collage It</h3>
+    <p>If Collage It helps your image experiments, you can support future updates here.</p>
+    <p>Build collage relationships quickly with images, text, brush shapes, and export-ready layouts.</p>
+    <img class="support-qr" src="assets/support-qr.png" alt="Support QR code">
+    <p class="support-caption">Thank you for supporting more playful tools.</p>
+  </div>
 </div>
 
 <script>
@@ -4405,6 +4491,30 @@ pushHistorySnapshot();
 updateHistoryButtons();
 syncInspector();
 setStatus('Ready');
+
+const supportBtn = document.getElementById('btn-support');
+const supportModal = document.getElementById('support-modal');
+const supportClose = document.getElementById('support-close');
+if (supportBtn && supportModal) {
+  supportBtn.addEventListener('click', function () {
+    supportModal.classList.add('is-open');
+    supportModal.setAttribute('aria-hidden', 'false');
+  });
+}
+if (supportClose && supportModal) {
+  supportClose.addEventListener('click', function () {
+    supportModal.classList.remove('is-open');
+    supportModal.setAttribute('aria-hidden', 'true');
+  });
+}
+if (supportModal) {
+  supportModal.addEventListener('click', function (e) {
+    if (e.target === supportModal) {
+      supportModal.classList.remove('is-open');
+      supportModal.setAttribute('aria-hidden', 'true');
+    }
+  });
+}
 </script>
 </body>
 </html>
