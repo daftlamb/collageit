@@ -564,6 +564,7 @@ input[type="range"]{
   <button class="tool-btn" id="btn-rectcrop" title="Rect Crop (R)">Rect Crop</button>
   <button class="tool-btn" id="btn-text" title="Add Text (T)">Text</button>
   <button class="tool-btn" id="btn-brush" title="Brush Path (B)">Brush</button>
+  <button class="tool-btn" id="btn-stamp" title="Stamp Path">Stamp Path</button>
   <button class="tool-btn" id="btn-line" title="Straight Line (I)">Line</button>
   <button class="tool-btn" id="btn-blob" title="Blob Shape (G)">Blob</button>
   <button class="tool-btn" id="btn-pathtext" title="Text on Path (P)">Path Text</button>
@@ -751,16 +752,35 @@ input[type="range"]{
         <div class="stack">
           <select class="field font-select" id="path-kind">
             <option value="brush">Brush</option>
+            <option value="stamp">Stamp Path</option>
             <option value="blob">Blob</option>
             <option value="textpath">Path Text</option>
           </select>
-          <div class="row"><label>Stroke</label><span class="value" id="path-stroke-val">6</span></div>
+          <select class="field font-select" id="path-stamp-kind">
+            <option value="star">Stamp: Star</option>
+            <option value="circle">Stamp: Circle</option>
+            <option value="diamond">Stamp: Diamond</option>
+            <option value="cross">Stamp: Cross</option>
+            <option value="arrow">Stamp: Arrow</option>
+            <option value="flower">Stamp: Flower</option>
+          </select>
+          <select class="field font-select" id="path-stamp-palette">
+            <option value="none">Color preset: Fixed</option>
+            <option value="confetti">Color preset: Confetti</option>
+            <option value="candy">Color preset: Candy</option>
+            <option value="earth">Color preset: Earth</option>
+            <option value="night">Color preset: Night</option>
+          </select>
+          <label class="subtle" id="path-stamp-follow-wrap"><input id="path-stamp-follow" type="checkbox" checked> Follow path angle</label>
+          <div class="row" id="path-size-row"><label>Size</label><span class="value" id="path-size-val">18</span></div>
+          <input type="range" id="path-size" min="6" max="64" value="18">
+          <div class="row"><label id="path-stroke-label">Stroke</label><span class="value" id="path-stroke-val">6</span></div>
           <input type="range" id="path-stroke" min="0" max="48" value="6">
-          <div class="row"><label>Smooth</label><span class="value" id="path-smooth-val">35</span></div>
+          <div class="row" id="path-smooth-row"><label>Smooth</label><span class="value" id="path-smooth-val">35</span></div>
           <input type="range" id="path-smooth" min="0" max="100" value="35">
-          <div class="row"><label>Loose</label><span class="value" id="path-loose-val">14</span></div>
+          <div class="row" id="path-loose-row"><label>Loose</label><span class="value" id="path-loose-val">14</span></div>
           <input type="range" id="path-loose" min="0" max="100" value="14">
-          <div class="row"><label>Rough</label><span class="value" id="path-rough-val">18</span></div>
+          <div class="row"><label id="path-rough-label">Rough</label><span class="value" id="path-rough-val">18</span></div>
           <input type="range" id="path-rough" min="0" max="100" value="18">
           <select class="field font-select" id="path-rough-style">
             <option value="off">Clean Brush</option>
@@ -769,6 +789,8 @@ input[type="range"]{
           <label class="subtle"><input id="path-fill-enabled" type="checkbox" checked> Fill</label>
           <div class="row"><label>Spacing</label><span class="value" id="path-spacing-val">0</span></div>
           <input type="range" id="path-spacing" min="-10" max="40" value="0">
+          <div class="row" id="path-endscale-row"><label>End scale</label><span class="value" id="path-endscale-val">100</span></div>
+          <input type="range" id="path-endscale" min="10" max="100" value="100">
           <select class="field font-select" id="path-arrow-style">
             <option value="none">No Arrow</option>
             <option value="triangle">Triangle Arrow</option>
@@ -821,6 +843,23 @@ input[type="range"]{
         </div>
       </div>
 
+      <div class="section hidden" id="print-section">
+        <h3>Print FX</h3>
+        <div class="stack">
+          <div class="row"><label>Print Blur</label><span class="value" id="print-blur-val">0</span></div>
+          <input type="range" id="print-blur" min="0" max="18" value="0">
+          <div class="row"><label>Dither</label><span class="value" id="print-dither-val">0</span></div>
+          <input type="range" id="print-dither" min="0" max="100" value="0">
+          <select class="field font-select" id="print-dither-mode">
+            <option value="ordered">Dither: Ordered</option>
+            <option value="newspaper">Dither: Newspaper</option>
+            <option value="coarse">Dither: Coarse</option>
+          </select>
+          <div class="row"><label>Pixel Size</label><span class="value" id="print-pixel-val">1</span></div>
+          <input type="range" id="print-pixel" min="1" max="16" value="1">
+        </div>
+      </div>
+
       <div class="section">
         <h3>Paper Tones</h3>
         <div class="swatch-grid" id="paper-swatches">
@@ -865,6 +904,15 @@ const DEFAULT_IMAGE_EFFECTS = {
   ditherColorMode: 'mono',
   ditherPixel: 1,
   blend: 'source-over'
+};
+const DEFAULT_GRAPHIC_PRINT_FX = {
+  blur: 0,
+  dither: 0,
+  ditherMode: 'newspaper',
+  ditherPixel: 1,
+  ditherColorMode: 'keep',
+  ditherInk: 0,
+  ditherTint: 0
 };
 const state = {
   layers: [],
@@ -921,7 +969,8 @@ function defaultTextLayer(x, y, text, name) {
     paddingX: 0,
     paddingY: 0,
     stickerEdge: 'note',
-    stickerShadow: 'soft'
+    stickerShadow: 'soft',
+    printFx: cloneGraphicPrintFx(DEFAULT_GRAPHIC_PRINT_FX)
   };
 }
 
@@ -948,7 +997,8 @@ function defaultShapeLayer(kind) {
     roughStyle: 'off',
     fillEnabled: true,
     strokeColor: '#111111',
-    fillColor: kind === 'grid' ? '#ffffff' : '#ffffff'
+    fillColor: kind === 'grid' ? '#ffffff' : '#ffffff',
+    printFx: cloneGraphicPrintFx(DEFAULT_GRAPHIC_PRINT_FX)
   };
 }
 
@@ -968,16 +1018,21 @@ function defaultPathLayer(kind, points, name) {
     pathKind: kind,
     points: normalized.points,
     closed: kind === 'blob',
-    strokeWidth: kind === 'textpath' ? 2 : (kind === 'blob' ? 34 : 6),
+    strokeWidth: kind === 'textpath' ? 2 : (kind === 'blob' ? 34 : (kind === 'stamp' ? 2 : 6)),
     smooth: kind === 'blob' ? 60 : 35,
     loose: kind === 'blob' ? 24 : 14,
-    rough: kind === 'brush' ? 18 : 8,
+    rough: kind === 'brush' ? 18 : (kind === 'stamp' ? 12 : 8),
     roughStyle: kind === 'brush' ? 'rough' : 'off',
-    fillEnabled: kind === 'blob',
+    fillEnabled: kind === 'blob' || kind === 'stamp',
     strokeColor: '#111111',
     fillColor: kind === 'blob' ? '#d98f37' : '#d9b98b',
-    spacing: 0,
+    spacing: kind === 'stamp' ? 12 : 0,
     arrowStyle: 'none',
+    stampKind: 'star',
+    stampPalette: 'none',
+    stampFollow: true,
+    stampSize: kind === 'stamp' ? 18 : 18,
+    stampEndScale: 100,
     showPath: kind === 'textpath',
     text: kind === 'textpath' ? 'path text' : '',
     fontFamily: 'Cormorant Garamond',
@@ -985,7 +1040,8 @@ function defaultPathLayer(kind, points, name) {
     lineHeight: 1.2,
     letterSpacing: 0,
     color: '#111111',
-    align: 'left'
+    align: 'left',
+    printFx: cloneGraphicPrintFx(DEFAULT_GRAPHIC_PRINT_FX)
   };
 }
 
@@ -1024,6 +1080,18 @@ function cloneEffects(fx) {
     ditherColorMode: (fx && fx.ditherColorMode) || 'mono',
     ditherPixel: Math.max(1, Number((fx && fx.ditherPixel) || 1)),
     blend: (fx && fx.blend) || 'source-over'
+  };
+}
+
+function cloneGraphicPrintFx(fx) {
+  return {
+    blur: Number((fx && fx.blur) || 0),
+    dither: Number((fx && fx.dither) || 0),
+    ditherMode: (fx && fx.ditherMode) || 'newspaper',
+    ditherPixel: Math.max(1, Number((fx && fx.ditherPixel) || 1)),
+    ditherColorMode: (fx && fx.ditherColorMode) || 'keep',
+    ditherInk: Number((fx && fx.ditherInk) || 0),
+    ditherTint: Number((fx && fx.ditherTint) || 0)
   };
 }
 
@@ -1176,6 +1244,7 @@ function makeSnapshot() {
         plain.paddingY = layer.paddingY;
         plain.stickerEdge = layer.stickerEdge;
         plain.stickerShadow = layer.stickerShadow;
+        plain.printFx = cloneGraphicPrintFx(layer.printFx);
       } else if (layer.type === 'shape') {
         plain.shapeKind = layer.shapeKind;
         plain.strokeWidth = layer.strokeWidth;
@@ -1189,6 +1258,7 @@ function makeSnapshot() {
         plain.fillEnabled = layer.fillEnabled !== false;
         plain.strokeColor = layer.strokeColor;
         plain.fillColor = layer.fillColor;
+        plain.printFx = cloneGraphicPrintFx(layer.printFx);
       } else if (layer.type === 'path') {
         plain.pathKind = layer.pathKind;
         plain.points = clonePathPoints(layer.points);
@@ -1203,6 +1273,11 @@ function makeSnapshot() {
         plain.fillColor = layer.fillColor;
         plain.spacing = layer.spacing;
         plain.arrowStyle = layer.arrowStyle;
+        plain.stampKind = layer.stampKind || 'star';
+        plain.stampPalette = layer.stampPalette || 'none';
+        plain.stampFollow = layer.stampFollow !== false;
+        plain.stampSize = layer.stampSize || 18;
+        plain.stampEndScale = layer.stampEndScale || 100;
         plain.showPath = layer.showPath;
         plain.text = layer.text;
         plain.fontFamily = layer.fontFamily;
@@ -1211,6 +1286,7 @@ function makeSnapshot() {
         plain.letterSpacing = layer.letterSpacing;
         plain.color = layer.color;
         plain.align = layer.align;
+        plain.printFx = cloneGraphicPrintFx(layer.printFx);
       }
       return plain;
     })
@@ -1275,7 +1351,8 @@ function hydrateLayer(plain) {
     paddingX: plain.paddingX || 0,
     paddingY: plain.paddingY || 0,
     stickerEdge: plain.stickerEdge || 'note',
-    stickerShadow: plain.stickerShadow || 'soft'
+    stickerShadow: plain.stickerShadow || 'soft',
+    printFx: cloneGraphicPrintFx(plain.printFx)
   });
   if (plain.type === 'shape') return Promise.resolve({
     id: plain.id,
@@ -1299,7 +1376,8 @@ function hydrateLayer(plain) {
     roughStyle: plain.roughStyle || 'off',
     fillEnabled: plain.fillEnabled !== false,
     strokeColor: plain.strokeColor || '#111111',
-    fillColor: plain.fillColor || '#ffffff'
+    fillColor: plain.fillColor || '#ffffff',
+    printFx: cloneGraphicPrintFx(plain.printFx)
   });
   if (plain.type === 'path') return Promise.resolve({
     id: plain.id,
@@ -1325,6 +1403,11 @@ function hydrateLayer(plain) {
     fillColor: plain.fillColor,
     spacing: plain.spacing || 0,
     arrowStyle: plain.pathKind === 'arrow' ? 'triangle' : (plain.arrowStyle || 'none'),
+    stampKind: plain.stampKind || 'star',
+    stampPalette: plain.stampPalette || 'none',
+    stampFollow: plain.stampFollow !== false,
+    stampSize: plain.stampSize || 18,
+    stampEndScale: plain.stampEndScale || 100,
     showPath: plain.showPath !== false,
     text: plain.text || '',
     fontFamily: plain.fontFamily || 'Cormorant Garamond',
@@ -1332,7 +1415,8 @@ function hydrateLayer(plain) {
     lineHeight: plain.lineHeight || 1.2,
     letterSpacing: plain.letterSpacing || 0,
     color: plain.color || '#111111',
-    align: plain.align || 'left'
+    align: plain.align || 'left',
+    printFx: cloneGraphicPrintFx(plain.printFx)
   });
   return new Promise(function (resolve) {
     const img = new Image();
@@ -2246,6 +2330,12 @@ function addPathLayer(kind, points) {
     layer.rough = 0;
     layer.name = 'Line';
   }
+  if (actualKind === 'stamp') {
+    layer.name = 'Stamp Path';
+    layer.fillEnabled = true;
+    layer.strokeWidth = Math.max(layer.strokeWidth, 18);
+    layer.spacing = Math.max(layer.spacing || 0, 12);
+  }
   state.layers.push(layer);
   setSelection([layer.id], layer.id);
   updateLayerPanel();
@@ -2747,6 +2837,163 @@ function getProcessedImage(layer, renderScale) {
   return off;
 }
 
+function hasGraphicPrintFx(layer) {
+  if (!layer || !layer.printFx) return false;
+  const fx = layer.printFx;
+  return Number(fx.blur || 0) > 0 || Number(fx.dither || 0) > 0;
+}
+
+function buildGraphicPrintFxCacheKey(layer, fx, scale) {
+  const base = [
+    layer.type,
+    Math.round((layer.w || 0) * 100) / 100,
+    Math.round((layer.h || 0) * 100) / 100,
+    scale,
+    fx.blur || 0,
+    fx.dither || 0,
+    fx.ditherMode || 'newspaper',
+    fx.ditherPixel || 1,
+    fx.ditherColorMode || 'keep',
+    fx.ditherInk || 0,
+    fx.ditherTint || 0
+  ];
+  if (layer.type === 'text') {
+    base.push(
+      layer.text || '',
+      layer.fontFamily || '',
+      layer.fontSize || 0,
+      layer.lineHeight || 1.2,
+      layer.letterSpacing || 0,
+      layer.color || '#111111',
+      layer.align || 'left',
+      layer.role || 'text',
+      layer.bgColor || '',
+      layer.paddingX || 0,
+      layer.paddingY || 0,
+      layer.stickerEdge || '',
+      layer.stickerShadow || ''
+    );
+  } else if (layer.type === 'shape') {
+    base.push(
+      layer.shapeKind || 'square',
+      layer.strokeWidth || 0,
+      layer.rough || 0,
+      layer.perspective || 0,
+      layer.tilt || 0,
+      layer.gridDensity || 0,
+      layer.gridAspect || 1,
+      layer.gridCurve || 0,
+      layer.roughStyle || 'off',
+      layer.fillEnabled !== false ? 1 : 0,
+      layer.strokeColor || '#111111',
+      layer.fillColor || '#ffffff'
+    );
+  } else if (layer.type === 'path') {
+    const pts = (layer.points || []).map(function (p) {
+      return (Math.round(p.x * 10) / 10) + ',' + (Math.round(p.y * 10) / 10);
+    }).join('|');
+    base.push(
+      layer.pathKind || 'brush',
+      pts,
+      layer.closed ? 1 : 0,
+      layer.strokeWidth || 0,
+      layer.smooth || 0,
+      layer.loose || 0,
+      layer.rough || 0,
+      layer.roughStyle || 'off',
+      layer.fillEnabled !== false ? 1 : 0,
+      layer.strokeColor || '#111111',
+      layer.fillColor || '#ffffff',
+      layer.spacing || 0,
+      layer.arrowStyle || 'none',
+      layer.stampKind || 'star',
+      layer.stampPalette || 'none',
+      layer.stampFollow !== false ? 1 : 0,
+      layer.stampSize || 18,
+      layer.stampEndScale || 100,
+      layer.showPath !== false ? 1 : 0,
+      layer.text || '',
+      layer.fontFamily || '',
+      layer.fontSize || 0,
+      layer.lineHeight || 1.2,
+      layer.letterSpacing || 0,
+      layer.color || '#111111',
+      layer.align || 'left'
+    );
+  }
+  return base.join('~');
+}
+
+function renderLayerWithGraphicPrintFx(layer, drawCtx, renderScale, innerRender) {
+  const fx = cloneGraphicPrintFx(layer.printFx);
+  const scale = renderScale || 1;
+  const cacheKey = buildGraphicPrintFxCacheKey(layer, fx, scale);
+  if (layer._printFxCacheKey === cacheKey && layer._printFxCacheCanvas) {
+    const cached = layer._printFxCacheCanvas;
+    const pad = layer._printFxCachePad || 0;
+    drawCtx.drawImage(
+      cached,
+      -layer.w / 2 - pad,
+      -layer.h / 2 - pad,
+      layer.w + pad * 2,
+      layer.h + pad * 2
+    );
+    return;
+  }
+  const pad = Math.ceil(Math.max(18, fx.blur * scale * 2 + 18));
+  const targetW = Math.max(1, Math.ceil((layer.w + pad * 2) * scale));
+  const targetH = Math.max(1, Math.ceil((layer.h + pad * 2) * scale));
+  const off = document.createElement('canvas');
+  off.width = targetW;
+  off.height = targetH;
+  const octx = off.getContext('2d');
+  octx.save();
+  octx.scale(scale, scale);
+  octx.translate(layer.w / 2 + pad, layer.h / 2 + pad);
+  innerRender(octx);
+  octx.restore();
+
+  if (fx.blur > 0) {
+    const blurCanvas = document.createElement('canvas');
+    blurCanvas.width = targetW;
+    blurCanvas.height = targetH;
+    const bctx = blurCanvas.getContext('2d');
+    bctx.filter = 'blur(' + (fx.blur * 0.6 * scale).toFixed(2) + 'px)';
+    bctx.drawImage(off, 0, 0);
+    bctx.filter = 'none';
+    octx.clearRect(0, 0, targetW, targetH);
+    octx.drawImage(blurCanvas, 0, 0);
+  }
+
+  if (fx.dither > 0) {
+    const ditherSource = octx.getImageData(0, 0, targetW, targetH);
+    applyDitherOverlay(
+      octx,
+      ditherSource,
+      targetW,
+      targetH,
+      fx.dither / 100,
+      fx.ditherMode,
+      fx.ditherColorMode,
+      fx.ditherPixel * scale,
+      fx.ditherInk || 0,
+      fx.ditherTint || 0
+    );
+  }
+
+  layer._printFxCacheKey = cacheKey;
+  layer._printFxCacheCanvas = off;
+  layer._printFxCachePad = pad;
+
+  drawCtx.drawImage(
+    off,
+    -layer.w / 2 - pad,
+    -layer.h / 2 - pad,
+    layer.w + pad * 2,
+    layer.h + pad * 2
+  );
+}
+
 function renderTextLayer(layer, ctxRef) {
   const drawCtx = ctxRef || ctx;
   const lines = layer.role === 'sticker' ? getWrappedStickerLines(layer) : String(layer.text || '').split('\n');
@@ -3030,6 +3277,10 @@ function renderPathLayer(layer, ctxRef) {
     }
     return;
   }
+  if (layer.pathKind === 'stamp') {
+    renderStampPath(drawCtx, layer, points);
+    return;
+  }
   if (layer.pathKind === 'textpath') {
     if (layer.showPath) {
       drawSmoothPath(drawCtx, points, layer.closed);
@@ -3040,6 +3291,125 @@ function renderPathLayer(layer, ctxRef) {
       drawCtx.globalAlpha = 1;
     }
     renderTextOnPath(layer, drawCtx);
+  }
+}
+
+function drawStampGlyph(ctxRef, kind, size, strokeColor, fillColor, fillEnabled, strokeWidth) {
+  const r = Math.max(4, size * 0.5);
+  ctxRef.beginPath();
+  if (kind === 'circle') {
+    ctxRef.arc(0, 0, r * 0.62, 0, Math.PI * 2);
+  } else if (kind === 'diamond') {
+    ctxRef.moveTo(0, -r);
+    ctxRef.lineTo(r * 0.82, 0);
+    ctxRef.lineTo(0, r);
+    ctxRef.lineTo(-r * 0.82, 0);
+    ctxRef.closePath();
+  } else if (kind === 'cross') {
+    const arm = r * 0.34;
+    const outer = r * 0.92;
+    ctxRef.moveTo(-arm, -outer);
+    ctxRef.lineTo(arm, -outer);
+    ctxRef.lineTo(arm, -arm);
+    ctxRef.lineTo(outer, -arm);
+    ctxRef.lineTo(outer, arm);
+    ctxRef.lineTo(arm, arm);
+    ctxRef.lineTo(arm, outer);
+    ctxRef.lineTo(-arm, outer);
+    ctxRef.lineTo(-arm, arm);
+    ctxRef.lineTo(-outer, arm);
+    ctxRef.lineTo(-outer, -arm);
+    ctxRef.lineTo(-arm, -arm);
+    ctxRef.closePath();
+  } else if (kind === 'arrow') {
+    ctxRef.moveTo(-r * 0.92, -r * 0.2);
+    ctxRef.lineTo(r * 0.18, -r * 0.2);
+    ctxRef.lineTo(r * 0.18, -r * 0.56);
+    ctxRef.lineTo(r, 0);
+    ctxRef.lineTo(r * 0.18, r * 0.56);
+    ctxRef.lineTo(r * 0.18, r * 0.2);
+    ctxRef.lineTo(-r * 0.92, r * 0.2);
+    ctxRef.closePath();
+  } else if (kind === 'flower') {
+    const petals = 6;
+    for (let i = 0; i < petals; i++) {
+      const a = (Math.PI * 2 * i) / petals;
+      const px = Math.cos(a) * r * 0.58;
+      const py = Math.sin(a) * r * 0.58;
+      if (i === 0) ctxRef.moveTo(px + r * 0.34, py);
+      ctxRef.ellipse(px, py, r * 0.34, r * 0.22, a, 0, Math.PI * 2);
+    }
+    ctxRef.moveTo(r * 0.24, 0);
+    ctxRef.arc(0, 0, r * 0.24, 0, Math.PI * 2);
+  } else {
+    const outer = r;
+    const inner = r * 0.46;
+    for (let i = 0; i < 10; i++) {
+      const radius = i % 2 === 0 ? outer : inner;
+      const angle = -Math.PI / 2 + i * Math.PI / 5;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctxRef.moveTo(x, y);
+      else ctxRef.lineTo(x, y);
+    }
+    ctxRef.closePath();
+  }
+  if (fillEnabled) {
+    ctxRef.fillStyle = fillColor;
+    ctxRef.fill();
+  }
+  if (strokeColor && strokeWidth > 0) {
+    ctxRef.lineWidth = strokeWidth;
+    ctxRef.strokeStyle = strokeColor;
+    ctxRef.stroke();
+  }
+}
+
+const STAMP_PALETTES = {
+  confetti: ['#ff6b6b','#f7b801','#6bcB77','#4d96ff','#b76eff'],
+  candy: ['#ff8fab','#ffc6ff','#bde0fe','#a0c4ff','#caffbf'],
+  earth: ['#7f5539','#b08968','#ddb892','#588157','#6c584c'],
+  night: ['#0b132b','#1c2541','#3a506b','#5bc0be','#f4f1de']
+};
+
+function getStampPaletteColor(layer, index) {
+  const paletteName = layer.stampPalette || 'none';
+  const palette = STAMP_PALETTES[paletteName];
+  if (!palette || !palette.length) return null;
+  const pick = Math.abs(Math.round(snoise(index * 0.63, layer.stampSize * 0.09) * 999)) % palette.length;
+  return palette[pick];
+}
+
+function renderStampPath(ctxRef, layer, points) {
+  const baseSize = Math.max(6, Number(layer.stampSize || 18));
+  const gap = Number(layer.spacing || 0);
+  const spacing = Math.max(8, baseSize * 0.72 + gap);
+  const samples = resamplePathSamples(points, layer.closed, spacing);
+  if (!samples.length) return;
+  const roughAmt = Number(layer.rough || 0) / 100;
+  const jitterBoost = roughAmt <= 0 ? 0 : (roughAmt * 0.8 + roughAmt * roughAmt * 1.7);
+  const follow = layer.stampFollow !== false;
+  const kind = layer.stampKind || 'star';
+  const endScale = layer.closed ? 1 : Math.max(0.1, Number(layer.stampEndScale || 100) / 100);
+  const strokeWidth = Math.max(0, Number(layer.strokeWidth || 0));
+  for (let i = 0; i < samples.length; i++) {
+    const sample = samples[i];
+    const t = samples.length <= 1 ? 0.5 : i / (samples.length - 1);
+    const centerWeight = layer.closed ? 1 : (1 - Math.abs(t * 2 - 1));
+    const taperScale = endScale + (1 - endScale) * centerWeight;
+    const angleNoise = roughAmt ? snoise(i * 0.31, baseSize * 0.07) * 0.95 * jitterBoost : 0;
+    const posNoiseX = roughAmt ? snoise(i * 0.29, 8.7) * baseSize * 0.4 * jitterBoost : 0;
+    const posNoiseY = roughAmt ? snoise(i * 0.37, 13.2) * baseSize * 0.4 * jitterBoost : 0;
+    const sizeNoise = roughAmt ? (1 + snoise(i * 0.19, 21.4) * 0.46 * jitterBoost) : 1;
+    const paletteColor = getStampPaletteColor(layer, i);
+    const fillColor = paletteColor || layer.fillColor;
+    const strokeColor = strokeWidth > 0 ? (paletteColor || layer.strokeColor) : layer.strokeColor;
+    ctxRef.save();
+    ctxRef.translate(sample.x + posNoiseX, sample.y + posNoiseY);
+    if (follow) ctxRef.rotate(sample.angle + angleNoise);
+    else if (angleNoise) ctxRef.rotate(angleNoise);
+    drawStampGlyph(ctxRef, kind, baseSize * taperScale * sizeNoise, strokeColor, fillColor, layer.fillEnabled !== false, strokeWidth);
+    ctxRef.restore();
   }
 }
 
@@ -3153,7 +3523,7 @@ function renderMarqueeSelection() {
 function renderDrawPreview() {
   if (!drawPreview || !drawPreview.points || drawPreview.points.length < 2) return;
   ctx.save();
-  ctx.strokeStyle = drawPreview.kind === 'blob' ? '#d98f37' : drawPreview.kind === 'pathtext' ? '#8b6dcf' : '#d99f56';
+  ctx.strokeStyle = drawPreview.kind === 'blob' ? '#d98f37' : drawPreview.kind === 'pathtext' ? '#8b6dcf' : drawPreview.kind === 'stamp' ? '#3b3026' : '#d99f56';
   ctx.fillStyle = 'rgba(217,143,55,0.18)';
   ctx.lineWidth = drawPreview.kind === 'blob' ? 3 : 2;
   ctx.setLineDash([6, 5]);
@@ -3208,11 +3578,14 @@ function renderScene(targetCtx, renderScale) {
         }
       }
     } else if (layer.type === 'text') {
-      renderTextLayer(layer, drawCtx);
+      if (hasGraphicPrintFx(layer)) renderLayerWithGraphicPrintFx(layer, drawCtx, imageScale, function (fxCtx) { renderTextLayer(layer, fxCtx); });
+      else renderTextLayer(layer, drawCtx);
     } else if (layer.type === 'shape') {
-      renderShapeLayer(layer, drawCtx);
+      if (hasGraphicPrintFx(layer)) renderLayerWithGraphicPrintFx(layer, drawCtx, imageScale, function (fxCtx) { renderShapeLayer(layer, fxCtx); });
+      else renderShapeLayer(layer, drawCtx);
     } else if (layer.type === 'path') {
-      renderPathLayer(layer, drawCtx);
+      if (hasGraphicPrintFx(layer)) renderLayerWithGraphicPrintFx(layer, drawCtx, imageScale, function (fxCtx) { renderPathLayer(layer, fxCtx); });
+      else renderPathLayer(layer, drawCtx);
     }
     drawCtx.restore();
   }
@@ -3363,7 +3736,7 @@ function removePathPoint(layer, pointIndex) {
 
 function setTool(tool) {
   state.tool = tool;
-  const buttons = ['btn-select', 'btn-rectcrop', 'btn-text', 'btn-brush', 'btn-line', 'btn-blob', 'btn-pathtext'];
+  const buttons = ['btn-select', 'btn-rectcrop', 'btn-text', 'btn-brush', 'btn-stamp', 'btn-line', 'btn-blob', 'btn-pathtext'];
   for (let i = 0; i < buttons.length; i++) document.getElementById(buttons[i]).classList.remove('active');
   document.getElementById('toolbar-crop-select').classList.remove('active');
   const map = {
@@ -3371,13 +3744,14 @@ function setTool(tool) {
     rectcrop: 'btn-rectcrop',
     text: 'btn-text',
     brush: 'btn-brush',
+    stamp: 'btn-stamp',
     line: 'btn-line',
     blob: 'btn-blob',
     pathtext: 'btn-pathtext'
   };
   if (tool === 'lasso') document.getElementById('toolbar-crop-select').classList.add('active');
   else document.getElementById(map[tool]).classList.add('active');
-  const labelMap = { lasso: 'Free Crop', rectcrop: 'Rect Crop', pathtext: 'Path Text', line: 'Line' };
+  const labelMap = { lasso: 'Free Crop', rectcrop: 'Rect Crop', pathtext: 'Path Text', line: 'Line', stamp: 'Stamp Path' };
   document.getElementById('status-tool').textContent = 'Tool: ' + (labelMap[tool] || tool.charAt(0).toUpperCase() + tool.slice(1));
   canvas.style.cursor = tool === 'text' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
 }
@@ -3505,6 +3879,7 @@ function syncInspector() {
   document.getElementById('sticker-section').classList.toggle('hidden', !active || multi || active.type !== 'text' || active.role !== 'sticker');
   document.getElementById('path-section').classList.toggle('hidden', !active || multi || active.type !== 'path');
   document.getElementById('shape-section').classList.toggle('hidden', !active || multi || active.type !== 'shape');
+  document.getElementById('print-section').classList.toggle('hidden', !active || multi || (active.type !== 'text' && active.type !== 'shape' && active.type !== 'path'));
   if (multi) {
     document.querySelector('#empty-section h3').textContent = 'Multiple selection';
     document.querySelector('#empty-section .subtle').textContent = getSelectedLayerIds().length + ' layers selected. Move, nudge, scale, or delete them together.';
@@ -3589,7 +3964,13 @@ function syncInspector() {
     syncRangeValue('shape-curve-val', active.gridCurve || 0);
   }
   if (active.type === 'path') {
+    const isStamp = active.pathKind === 'stamp';
     document.getElementById('path-kind').value = active.pathKind;
+    document.getElementById('path-stamp-kind').value = active.stampKind || 'star';
+    document.getElementById('path-stamp-palette').value = active.stampPalette || 'none';
+    document.getElementById('path-stamp-follow').checked = active.stampFollow !== false;
+    document.getElementById('path-size').value = active.stampSize || 18;
+    document.getElementById('path-endscale').value = active.stampEndScale || 100;
     document.getElementById('path-stroke').value = active.strokeWidth;
     document.getElementById('path-smooth').value = active.smooth;
     document.getElementById('path-loose').value = active.loose || 0;
@@ -3600,11 +3981,37 @@ function syncInspector() {
     document.getElementById('path-arrow-style').value = active.arrowStyle || 'none';
     document.getElementById('path-stroke-color').value = active.strokeColor;
     document.getElementById('path-fill-color').value = active.fillColor;
+    document.getElementById('path-stamp-kind').style.display = isStamp ? '' : 'none';
+    document.getElementById('path-stamp-palette').style.display = isStamp ? '' : 'none';
+    document.getElementById('path-stamp-follow-wrap').style.display = isStamp ? '' : 'none';
+    document.getElementById('path-size').style.display = isStamp ? '' : 'none';
+    document.getElementById('path-size-row').style.display = isStamp ? 'flex' : 'none';
+    document.getElementById('path-endscale').style.display = isStamp ? '' : 'none';
+    document.getElementById('path-endscale-row').style.display = isStamp ? 'flex' : 'none';
+    document.getElementById('path-loose').style.display = isStamp ? 'none' : '';
+    document.getElementById('path-loose-row').style.display = isStamp ? 'none' : 'flex';
+    document.getElementById('path-arrow-style').style.display = isStamp ? 'none' : '';
+    document.getElementById('path-rough-style').style.display = isStamp ? 'none' : '';
+    document.getElementById('path-stroke-label').textContent = isStamp ? 'Stroke' : 'Stroke';
+    document.getElementById('path-rough-label').textContent = isStamp ? 'Jitter' : 'Rough';
     syncRangeValue('path-stroke-val', active.strokeWidth);
     syncRangeValue('path-smooth-val', active.smooth);
     syncRangeValue('path-loose-val', active.loose || 0);
     syncRangeValue('path-rough-val', active.rough || 0);
     syncRangeValue('path-spacing-val', active.spacing || 0);
+    syncRangeValue('path-size-val', active.stampSize || 18);
+    syncRangeValue('path-endscale-val', active.stampEndScale || 100);
+  }
+
+  if (active.type === 'text' || active.type === 'shape' || active.type === 'path') {
+    active.printFx = cloneGraphicPrintFx(active.printFx);
+    document.getElementById('print-blur').value = active.printFx.blur || 0;
+    document.getElementById('print-dither').value = active.printFx.dither || 0;
+    document.getElementById('print-dither-mode').value = active.printFx.ditherMode || 'newspaper';
+    document.getElementById('print-pixel').value = active.printFx.ditherPixel || 1;
+    syncRangeValue('print-blur-val', active.printFx.blur || 0);
+    syncRangeValue('print-dither-val', active.printFx.dither || 0);
+    syncRangeValue('print-pixel-val', active.printFx.ditherPixel || 1);
   }
 }
 
@@ -3701,7 +4108,7 @@ canvas.addEventListener('mousedown', function (e) {
   } else if (state.tool === 'text') {
     addTextLayer(p.x, p.y);
     setTool('select');
-  } else if (state.tool === 'brush' || state.tool === 'blob' || state.tool === 'pathtext' || state.tool === 'line') {
+  } else if (state.tool === 'brush' || state.tool === 'stamp' || state.tool === 'blob' || state.tool === 'pathtext' || state.tool === 'line') {
     drawPreview = state.tool === 'line'
       ? { kind: 'line', points: [{ x: p.x, y: p.y }, { x: p.x, y: p.y }] }
       : { kind: state.tool, points: [{ x: p.x, y: p.y }] };
@@ -3852,6 +4259,7 @@ document.getElementById('toolbar-crop-select').addEventListener('change', functi
 document.getElementById('btn-rectcrop').addEventListener('click', function () { beginCropTool('rectcrop'); });
 document.getElementById('btn-text').addEventListener('click', function () { setTool('text'); });
 document.getElementById('btn-brush').addEventListener('click', function () { setTool('brush'); });
+document.getElementById('btn-stamp').addEventListener('click', function () { setTool('stamp'); });
 document.getElementById('btn-line').addEventListener('click', function () { setTool('line'); });
 document.getElementById('btn-blob').addEventListener('click', function () { setTool('blob'); });
 document.getElementById('btn-pathtext').addEventListener('click', function () { setTool('pathtext'); });
@@ -4141,11 +4549,62 @@ document.getElementById('path-kind').addEventListener('change', function () {
     active.strokeWidth = Math.max(active.strokeWidth, 20);
     active.loose = Math.max(active.loose || 0, 18);
   }
+  if (this.value === 'stamp') {
+    active.fillEnabled = true;
+    active.strokeWidth = Math.min(Math.max(active.strokeWidth || 0, 2), 12);
+    active.stampSize = Math.max(active.stampSize || 18, 18);
+    active.spacing = Math.max(active.spacing || 0, 12);
+    active.stampKind = active.stampKind || 'star';
+    active.stampFollow = active.stampFollow !== false;
+    active.stampEndScale = active.stampEndScale || 100;
+  }
   if (this.value !== 'textpath') active.showPath = true;
   syncInspector();
   render();
   pushHistorySnapshot();
 });
+
+document.getElementById('path-stamp-kind').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.stampKind = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('path-stamp-palette').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.stampPalette = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('path-stamp-follow').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.stampFollow = this.checked;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('path-size').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.stampSize = Number(this.value);
+  syncRangeValue('path-size-val', this.value);
+  render();
+});
+document.getElementById('path-size').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('path-endscale').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || active.type !== 'path') return;
+  active.stampEndScale = Number(this.value);
+  syncRangeValue('path-endscale-val', this.value);
+  render();
+});
+document.getElementById('path-endscale').addEventListener('change', pushHistorySnapshot);
 
 document.getElementById('path-stroke').addEventListener('input', function () {
   const active = getActiveLayer();
@@ -4340,6 +4799,45 @@ document.getElementById('shape-fill-enabled').addEventListener('change', functio
   pushHistorySnapshot();
 });
 
+document.getElementById('print-blur').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || (active.type !== 'text' && active.type !== 'shape' && active.type !== 'path')) return;
+  active.printFx = cloneGraphicPrintFx(active.printFx);
+  active.printFx.blur = Number(this.value);
+  syncRangeValue('print-blur-val', this.value);
+  render();
+});
+document.getElementById('print-blur').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('print-dither').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || (active.type !== 'text' && active.type !== 'shape' && active.type !== 'path')) return;
+  active.printFx = cloneGraphicPrintFx(active.printFx);
+  active.printFx.dither = Number(this.value);
+  syncRangeValue('print-dither-val', this.value);
+  render();
+});
+document.getElementById('print-dither').addEventListener('change', pushHistorySnapshot);
+
+document.getElementById('print-dither-mode').addEventListener('change', function () {
+  const active = getActiveLayer();
+  if (!active || (active.type !== 'text' && active.type !== 'shape' && active.type !== 'path')) return;
+  active.printFx = cloneGraphicPrintFx(active.printFx);
+  active.printFx.ditherMode = this.value;
+  render();
+  pushHistorySnapshot();
+});
+
+document.getElementById('print-pixel').addEventListener('input', function () {
+  const active = getActiveLayer();
+  if (!active || (active.type !== 'text' && active.type !== 'shape' && active.type !== 'path')) return;
+  active.printFx = cloneGraphicPrintFx(active.printFx);
+  active.printFx.ditherPixel = Number(this.value);
+  syncRangeValue('print-pixel-val', this.value);
+  render();
+});
+document.getElementById('print-pixel').addEventListener('change', pushHistorySnapshot);
+
 document.getElementById('btn-path-toggle-close').addEventListener('click', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
@@ -4441,6 +4939,7 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'r' || e.key === 'R') beginCropTool('rectcrop');
   if (e.key === 't' || e.key === 'T') setTool('text');
   if (e.key === 'b' || e.key === 'B') setTool('brush');
+  if (e.key === 'm' || e.key === 'M') setTool('stamp');
   if (e.key === 'i' || e.key === 'I') setTool('line');
   if (e.key === 'g' || e.key === 'G') setTool('blob');
   if (e.key === 'p' || e.key === 'P') setTool('pathtext');
