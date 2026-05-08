@@ -1018,7 +1018,7 @@ function defaultPathLayer(kind, points, name) {
     pathKind: kind,
     points: normalized.points,
     closed: kind === 'blob',
-    strokeWidth: kind === 'textpath' ? 2 : (kind === 'blob' ? 34 : (kind === 'stamp' ? 2 : 6)),
+    strokeWidth: kind === 'textpath' ? 2 : (kind === 'blob' ? 0 : (kind === 'stamp' ? 2 : 6)),
     smooth: kind === 'blob' ? 60 : 35,
     loose: kind === 'blob' ? 24 : 14,
     rough: kind === 'brush' ? 18 : (kind === 'stamp' ? 12 : 8),
@@ -1026,6 +1026,7 @@ function defaultPathLayer(kind, points, name) {
     fillEnabled: kind === 'blob' || kind === 'stamp',
     strokeColor: '#111111',
     fillColor: kind === 'blob' ? '#d98f37' : '#d9b98b',
+    blobSize: kind === 'blob' ? 34 : 34,
     spacing: kind === 'stamp' ? 12 : 0,
     arrowStyle: 'none',
     stampKind: 'star',
@@ -1264,6 +1265,7 @@ function makeSnapshot() {
         plain.points = clonePathPoints(layer.points);
         plain.closed = layer.closed;
         plain.strokeWidth = layer.strokeWidth;
+        plain.blobSize = layer.blobSize || 34;
         plain.smooth = layer.smooth;
         plain.loose = layer.loose;
         plain.rough = layer.rough;
@@ -1393,7 +1395,14 @@ function hydrateLayer(plain) {
     pathKind: plain.pathKind === 'arrow' ? 'brush' : plain.pathKind,
     points: clonePathPoints(plain.points),
     closed: !!plain.closed,
-    strokeWidth: plain.strokeWidth,
+    strokeWidth: plain.pathKind === 'blob'
+      ? ((plain.blobStrokeWidth != null)
+          ? plain.blobStrokeWidth
+          : ((plain.strokeWidth != null && plain.strokeWidth <= 12) ? plain.strokeWidth : 0))
+      : plain.strokeWidth,
+    blobSize: plain.pathKind === 'blob'
+      ? (plain.blobSize || Math.max(plain.strokeWidth || 34, 8))
+      : (plain.blobSize || 34),
     smooth: plain.smooth,
     loose: plain.loose || 0,
     rough: plain.rough || 0,
@@ -1959,7 +1968,7 @@ function renderBlobShape(ctxRef, layer, points) {
   off.height = Math.max(8, Math.ceil(layer.h));
   const octx = off.getContext('2d');
   const canvasPoints = points.map(function (p) { return { x: p.x + layer.w / 2, y: p.y + layer.h / 2 }; });
-  const bodyWidth = Math.max(8, layer.strokeWidth);
+  const bodyWidth = Math.max(8, Number(layer.blobSize || layer.strokeWidth || 34));
   const resampled = resampleMetaballPoints(canvasPoints, Math.max(3, bodyWidth * 0.32));
   const step = Math.max(4, Math.floor(bodyWidth / 6));
   const cols = Math.ceil(off.width / step) + 2;
@@ -1998,7 +2007,9 @@ function renderBlobShape(ctxRef, layer, points) {
   }
   if (layer.strokeColor && layer.strokeWidth > 0) {
     octx.strokeStyle = layer.strokeColor;
-    octx.lineWidth = Math.max(0.8, layer.strokeWidth * 0.08);
+    octx.lineWidth = Math.max(0.8, layer.strokeWidth);
+    octx.lineJoin = 'round';
+    octx.lineCap = 'round';
     octx.beginPath();
     chains.forEach(function (chain) {
       smoothPathCtx(octx, chain);
@@ -2335,6 +2346,12 @@ function addPathLayer(kind, points) {
     layer.fillEnabled = true;
     layer.strokeWidth = Math.max(layer.strokeWidth, 18);
     layer.spacing = Math.max(layer.spacing || 0, 12);
+  }
+  if (actualKind === 'blob') {
+    layer.name = 'Blob';
+    layer.fillEnabled = true;
+    layer.blobSize = Math.max(layer.blobSize || 0, 24);
+    layer.strokeWidth = Math.max(0, Math.min(layer.strokeWidth || 0, 8));
   }
   state.layers.push(layer);
   setSelection([layer.id], layer.id);
@@ -3965,11 +3982,12 @@ function syncInspector() {
   }
   if (active.type === 'path') {
     const isStamp = active.pathKind === 'stamp';
+    const isBlob = active.pathKind === 'blob';
     document.getElementById('path-kind').value = active.pathKind;
     document.getElementById('path-stamp-kind').value = active.stampKind || 'star';
     document.getElementById('path-stamp-palette').value = active.stampPalette || 'none';
     document.getElementById('path-stamp-follow').checked = active.stampFollow !== false;
-    document.getElementById('path-size').value = active.stampSize || 18;
+    document.getElementById('path-size').value = isBlob ? (active.blobSize || 34) : (active.stampSize || 18);
     document.getElementById('path-endscale').value = active.stampEndScale || 100;
     document.getElementById('path-stroke').value = active.strokeWidth;
     document.getElementById('path-smooth').value = active.smooth;
@@ -3984,23 +4002,24 @@ function syncInspector() {
     document.getElementById('path-stamp-kind').style.display = isStamp ? '' : 'none';
     document.getElementById('path-stamp-palette').style.display = isStamp ? '' : 'none';
     document.getElementById('path-stamp-follow-wrap').style.display = isStamp ? '' : 'none';
-    document.getElementById('path-size').style.display = isStamp ? '' : 'none';
-    document.getElementById('path-size-row').style.display = isStamp ? 'flex' : 'none';
+    document.getElementById('path-size').style.display = (isStamp || isBlob) ? '' : 'none';
+    document.getElementById('path-size-row').style.display = (isStamp || isBlob) ? 'flex' : 'none';
     document.getElementById('path-endscale').style.display = isStamp ? '' : 'none';
     document.getElementById('path-endscale-row').style.display = isStamp ? 'flex' : 'none';
     document.getElementById('path-loose').style.display = isStamp ? 'none' : '';
     document.getElementById('path-loose-row').style.display = isStamp ? 'none' : 'flex';
-    document.getElementById('path-arrow-style').style.display = isStamp ? 'none' : '';
-    document.getElementById('path-rough-style').style.display = isStamp ? 'none' : '';
-    document.getElementById('path-stroke-label').textContent = isStamp ? 'Stroke' : 'Stroke';
+    document.getElementById('path-arrow-style').style.display = (isStamp || isBlob) ? 'none' : '';
+    document.getElementById('path-rough-style').style.display = (isStamp || isBlob) ? 'none' : '';
+    document.getElementById('path-stroke-label').textContent = 'Stroke';
     document.getElementById('path-rough-label').textContent = isStamp ? 'Jitter' : 'Rough';
     syncRangeValue('path-stroke-val', active.strokeWidth);
     syncRangeValue('path-smooth-val', active.smooth);
     syncRangeValue('path-loose-val', active.loose || 0);
     syncRangeValue('path-rough-val', active.rough || 0);
     syncRangeValue('path-spacing-val', active.spacing || 0);
-    syncRangeValue('path-size-val', active.stampSize || 18);
+    syncRangeValue('path-size-val', isBlob ? (active.blobSize || 34) : (active.stampSize || 18));
     syncRangeValue('path-endscale-val', active.stampEndScale || 100);
+    document.querySelector('#path-size-row label').textContent = isBlob ? 'Size' : 'Size';
   }
 
   if (active.type === 'text' || active.type === 'shape' || active.type === 'path') {
@@ -4546,7 +4565,9 @@ document.getElementById('path-kind').addEventListener('change', function () {
   active.pathKind = this.value;
   if (this.value === 'blob') {
     active.closed = true;
-    active.strokeWidth = Math.max(active.strokeWidth, 20);
+    active.fillEnabled = true;
+    active.blobSize = Math.max(active.blobSize || active.strokeWidth || 0, 24);
+    active.strokeWidth = Math.min(Math.max(active.strokeWidth || 0, 0), 12);
     active.loose = Math.max(active.loose || 0, 18);
   }
   if (this.value === 'stamp') {
@@ -4591,7 +4612,8 @@ document.getElementById('path-stamp-follow').addEventListener('change', function
 document.getElementById('path-size').addEventListener('input', function () {
   const active = getActiveLayer();
   if (!active || active.type !== 'path') return;
-  active.stampSize = Number(this.value);
+  if (active.pathKind === 'blob') active.blobSize = Number(this.value);
+  else active.stampSize = Number(this.value);
   syncRangeValue('path-size-val', this.value);
   render();
 });
