@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --mac dmg"
+    "dist": "electron-builder --mac dmg",
+    "dist:win": "electron-builder --win nsis portable"
   },
   "build": {
     "appId": "com.daftlamb.collageit",
@@ -17,7 +18,8 @@
       "preload.js",
       "assets/**/*",
       "license/public-key.pem",
-      "build/icon.icns"
+      "build/icon.icns",
+      "build/icon.ico"
     ],
     "mac": {
       "category": "public.app-category.graphics-design",
@@ -33,6 +35,19 @@
     },
     "dmg": {
       "artifactName": "Collage-It-${version}-${arch}.dmg"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "artifactName": "Collage-It-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Collage-It-Portable-${version}.${ext}"
     }
   },
   "devDependencies": {

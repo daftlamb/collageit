@@ -59,7 +59,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root{
-  --left-panel-width:190px;
+  --left-panel-width:230px;
   --right-panel-width:280px;
   --bg:#f3efe7;
   --panel:#fcfaf6;
@@ -467,8 +467,58 @@ button,input,select,textarea{font:inherit}
   overflow:auto;
   padding:10px 10px 18px;
 }
+.panel-scroll.split{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  min-height:0;
+}
 .panel-scroll::-webkit-scrollbar{ width:8px; }
 .panel-scroll::-webkit-scrollbar-thumb{ background:#d1c6b6; border-radius:999px; }
+.sidebar-group{
+  border:1px solid var(--line-soft);
+  border-radius:8px;
+  background:rgba(255,255,255,0.58);
+  overflow:hidden;
+  min-height:0;
+}
+.sidebar-group.flex{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+}
+.sidebar-group.collapsed .sidebar-body{ display:none; }
+.sidebar-toggle{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  border:0;
+  border-radius:0;
+  padding:9px 10px;
+  background:#fff7ec;
+  color:var(--text);
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+.sidebar-toggle::after{
+  content:'-';
+  color:var(--muted);
+  font-size:14px;
+  letter-spacing:0;
+}
+.sidebar-group.collapsed .sidebar-toggle::after{ content:'+'; }
+.sidebar-body{
+  padding:8px;
+  min-height:0;
+}
+.sidebar-group.flex .sidebar-body{
+  flex:1;
+  overflow:auto;
+}
 .section{
   border:1px solid var(--line-soft);
   border-radius:8px;
@@ -493,7 +543,7 @@ button,input,select,textarea{font:inherit}
   flex-direction:column;
   gap:4px;
 }
-.layer-item{
+.layer-item,.page-item{
   display:flex;
   align-items:center;
   gap:8px;
@@ -504,8 +554,8 @@ button,input,select,textarea{font:inherit}
   cursor:pointer;
   font-size:11px;
 }
-.layer-item:hover{ background:#f0e7d8; }
-.layer-item.active{
+.layer-item:hover,.page-item:hover{ background:#f0e7d8; }
+.layer-item.active,.page-item.active{
   background:#fff7ec;
   border-color:#d8b788;
   color:var(--text);
@@ -547,17 +597,47 @@ button,input,select,textarea{font:inherit}
   border-color:var(--accent-2);
   background:#fff1dc;
 }
-#layer-actions{
+#layer-actions,#page-actions{
   display:grid;
   grid-template-columns:repeat(3,1fr);
   gap:6px;
   margin-top:10px;
 }
+#page-actions{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+#page-list{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.page-thumb{
+  width:34px;
+  height:26px;
+  border:1px solid var(--line-soft);
+  border-radius:4px;
+  background:#fbf3e7;
+  flex-shrink:0;
+}
+.page-name{
+  flex:1;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.page-count{
+  color:var(--muted);
+  font-size:10px;
+}
 .mini-btn{
   border-radius:7px;
-  padding:7px 6px;
+  padding:8px 8px;
   text-align:center;
   font-size:11px;
+  min-width:0;
+  white-space:nowrap;
 }
 #canvas-area{
   position:relative;
@@ -567,9 +647,49 @@ button,input,select,textarea{font:inherit}
   justify-content:center;
   background:#e7dfd2;
 }
+#canvas-area.pages-mode{
+  overflow:auto;
+  align-items:flex-start;
+  justify-content:center;
+}
 #canvas-stage{
   position:relative;
   padding:34px;
+}
+#canvas-area.pages-mode #canvas-stage{
+  display:none;
+}
+#pages-view{
+  display:none;
+  width:100%;
+  min-height:100%;
+  padding:34px;
+}
+#canvas-area.pages-mode #pages-view{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:28px;
+}
+.page-preview{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:8px;
+}
+.page-preview-label{
+  color:var(--muted);
+  font-size:11px;
+}
+.page-preview-canvas{
+  display:block;
+  box-shadow:var(--shadow);
+  background:#fffaf2;
+  cursor:pointer;
+}
+.page-preview.active .page-preview-canvas{
+  outline:3px solid rgba(217,143,55,.78);
+  outline-offset:6px;
 }
 #canvas-wrapper{
   position:relative;
@@ -783,7 +903,7 @@ input[type="range"]{
 }
 @media (max-width: 1100px){
   :root{
-    --left-panel-width:170px;
+    --left-panel-width:220px;
     --right-panel-width:248px;
   }
   #main{ grid-template-columns:var(--left-panel-width) minmax(0,1fr) var(--right-panel-width); }
@@ -968,6 +1088,7 @@ input[type="range"]{
         </select>
       </div>
       <button class="action-btn" id="btn-batch-export" title="Export multiple sizes">Batch Export</button>
+      <button class="action-btn" id="btn-export-pdf" title="Export all pages as PDF">Export PDF</button>
     </div>
   </div>
 </div>
@@ -990,13 +1111,30 @@ input[type="range"]{
 
 <div id="main">
   <div class="panel" id="layers">
-    <div class="panel-head"><div class="panel-title">Layers</div></div>
-    <div class="panel-scroll">
-      <div id="layer-list"></div>
-      <div id="layer-actions">
-        <button class="mini-btn" id="btn-layer-up" title="Move Up">Up</button>
-        <button class="mini-btn" id="btn-layer-down" title="Move Down">Down</button>
-        <button class="mini-btn" id="btn-layer-del" title="Delete">Delete</button>
+    <div class="panel-head"><div class="panel-title">Document</div></div>
+    <div class="panel-scroll split">
+      <div class="sidebar-group flex" id="layers-group">
+        <button class="sidebar-toggle" id="toggle-layers" type="button">Layers</button>
+        <div class="sidebar-body">
+          <div id="layer-list"></div>
+          <div id="layer-actions">
+            <button class="mini-btn" id="btn-layer-up" title="Move Up">Up</button>
+            <button class="mini-btn" id="btn-layer-down" title="Move Down">Down</button>
+            <button class="mini-btn" id="btn-layer-del" title="Delete">Delete</button>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-group" id="pages-group">
+        <button class="sidebar-toggle" id="toggle-pages" type="button">Pages</button>
+        <div class="sidebar-body">
+          <div id="page-list"></div>
+          <div id="page-actions">
+            <button class="mini-btn" id="btn-page-add" title="Add Page">Add</button>
+            <button class="mini-btn" id="btn-page-duplicate" title="Duplicate Page">Copy</button>
+            <button class="mini-btn" id="btn-page-delete" title="Delete Page">Delete</button>
+            <button class="mini-btn" id="btn-pages-view" title="Pages View">View</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1011,6 +1149,7 @@ input[type="range"]{
         <canvas id="main-canvas"></canvas>
       </div>
     </div>
+    <div id="pages-view" aria-live="polite"></div>
   </div>
 
   <div class="panel" id="inspector">
@@ -1336,6 +1475,12 @@ const DEFAULT_GRAPHIC_PRINT_FX = {
 };
 const state = {
   layers: [],
+  pages: [],
+  activePageId: 1,
+  nextPageId: 2,
+  layersCollapsed: false,
+  pagesCollapsed: false,
+  pagesView: false,
   activeId: null,
   tool: 'select',
   cropMode: 'smooth',
@@ -1406,6 +1551,8 @@ const I18N = {
     'Insert': '插入',
     'Draw': '绘制',
     'Export PNG': '导出 PNG',
+    'Export PDF': '导出 PDF',
+    'Export all pages as PDF': '导出所有页面为 PDF',
     'Batch export sizes': '批量导出尺寸',
     'Export': '导出',
     'Scale': '倍率',
@@ -1431,7 +1578,17 @@ const I18N = {
     'English': 'English',
     '中文': '中文',
     'Support me / 支持我': '支持我 / Support me',
+    'Document': '文档',
     'Layers': '图层',
+    'Pages': '页面',
+    'Add Page': '添加页面',
+    'Duplicate Page': '复制页面',
+    'Delete Page': '删除页面',
+    'Pages View': '多页视图',
+    'Add': '添加',
+    'Copy': '复制',
+    'View': '视图',
+    'Edit': '编辑',
     'Move Up': '上移',
     'Move Down': '下移',
     'Delete': '删除',
@@ -1600,12 +1757,20 @@ const I18N = {
     'Project saved': '项目已保存',
     'Project opened': '项目已打开',
     'Could not open project': '无法打开项目',
+    'Page selected': '页面已切换',
+    'Page added': '页面已添加',
+    'Page duplicated': '页面已复制',
+    'Page deleted': '页面已删除',
+    'Keep at least one page': '至少保留一个页面',
+    'Pages view on': '多页视图已开启',
+    'Pages view off': '多页视图已关闭',
     'Template saved': '模板已保存',
     'Template applied': '模板已套用',
     'Could not save template': '无法保存模板',
     'Choose a template first': '请先选择模板',
     'No templates saved yet': '还没有保存模板',
     'Batch export finished': '批量导出完成',
+    'PDF export finished': 'PDF 导出完成',
     'Multiple selection': '多选',
     'layers selected': '个图层已选择',
     '1 layer selected': '已选择 1 个图层',
@@ -1722,6 +1887,7 @@ function applyLanguage() {
   refreshTemplateSelect();
   setTool(state.tool || 'select');
   updateLayerPanel();
+  updatePagePanel();
   syncInspector();
   setStatus(currentStatusText);
 }
@@ -1737,6 +1903,7 @@ const paperTextureCache = new Map();
 let drawPreview = null;
 let activePathPoint = null;
 let selectedPathPoint = null;
+let renderingPagesView = false;
 
 function defaultTextLayer(x, y, text, name) {
   return {
@@ -2014,13 +2181,14 @@ function normalizePathLayerBounds(layer, pad) {
   layer.y = newCenterY - newH / 2;
 }
 
-function makeSnapshot() {
-  return JSON.parse(JSON.stringify({
+function makeCurrentPageSnapshot() {
+  return {
+    id: state.activePageId,
+    name: getActivePageName(),
     activeId: state.activeId,
     selectionIds: state.selectionIds,
     canvasW: state.canvasW,
     canvasH: state.canvasH,
-    nextId: state.nextId,
     paperColor: state.paperColor,
     layers: state.layers.map(function (layer) {
       const plain = {
@@ -2107,6 +2275,41 @@ function makeSnapshot() {
       }
       return plain;
     })
+  };
+}
+
+function getActivePageName() {
+  const page = state.pages.find(function (item) { return item.id === state.activePageId; });
+  return page && page.name ? page.name : 'Page ' + Math.max(1, getActivePageIndex() + 1);
+}
+
+function getActivePageIndex() {
+  return Math.max(0, state.pages.findIndex(function (item) { return item.id === state.activePageId; }));
+}
+
+function getSyncedPages() {
+  const current = makeCurrentPageSnapshot();
+  const pages = state.pages.length ? state.pages.map(function (page) {
+    return page.id === state.activePageId ? current : page;
+  }) : [current];
+  if (!pages.some(function (page) { return page.id === state.activePageId; })) pages.push(current);
+  return pages;
+}
+
+function makeSnapshot() {
+  const pages = getSyncedPages();
+  const activePage = pages.find(function (page) { return page.id === state.activePageId; }) || pages[0];
+  return JSON.parse(JSON.stringify({
+    activePageId: state.activePageId,
+    nextPageId: state.nextPageId,
+    nextId: state.nextId,
+    pages: pages,
+    activeId: activePage.activeId,
+    selectionIds: activePage.selectionIds,
+    canvasW: activePage.canvasW,
+    canvasH: activePage.canvasH,
+    paperColor: activePage.paperColor,
+    layers: activePage.layers
   }));
 }
 
@@ -2273,21 +2476,64 @@ function hydrateLayer(plain) {
   });
 }
 
-async function restoreSnapshot(snapshot) {
-  state.activeId = snapshot.activeId;
-  state.selectionIds = Array.isArray(snapshot.selectionIds) ? snapshot.selectionIds.slice() : (snapshot.activeId ? [snapshot.activeId] : []);
-  state.canvasW = snapshot.canvasW;
-  state.canvasH = snapshot.canvasH;
-  state.nextId = snapshot.nextId;
-  state.paperColor = snapshot.paperColor || PAPER_SWATCHES[0];
-  state.layers = await Promise.all(snapshot.layers.map(hydrateLayer));
+function normalizePagesFromSnapshot(snapshot) {
+  if (snapshot && Array.isArray(snapshot.pages) && snapshot.pages.length) {
+    return snapshot.pages.map(function (page, index) {
+      return {
+        id: page.id || index + 1,
+        name: page.name || 'Page ' + (index + 1),
+        activeId: page.activeId || null,
+        selectionIds: Array.isArray(page.selectionIds) ? page.selectionIds.slice() : (page.activeId ? [page.activeId] : []),
+        canvasW: page.canvasW || snapshot.canvasW || 800,
+        canvasH: page.canvasH || snapshot.canvasH || 800,
+        paperColor: page.paperColor || snapshot.paperColor || PAPER_SWATCHES[0],
+        layers: Array.isArray(page.layers) ? page.layers : []
+      };
+    });
+  }
+  return [{
+    id: 1,
+    name: 'Page 1',
+    activeId: snapshot.activeId || null,
+    selectionIds: Array.isArray(snapshot.selectionIds) ? snapshot.selectionIds.slice() : (snapshot.activeId ? [snapshot.activeId] : []),
+    canvasW: snapshot.canvasW || 800,
+    canvasH: snapshot.canvasH || 800,
+    paperColor: snapshot.paperColor || PAPER_SWATCHES[0],
+    layers: Array.isArray(snapshot.layers) ? snapshot.layers : []
+  }];
+}
+
+async function loadPageSnapshot(page) {
+  state.activeId = page.activeId || null;
+  state.selectionIds = Array.isArray(page.selectionIds) ? page.selectionIds.slice() : (page.activeId ? [page.activeId] : []);
+  state.canvasW = page.canvasW;
+  state.canvasH = page.canvasH;
+  state.paperColor = page.paperColor || PAPER_SWATCHES[0];
+  state.layers = await Promise.all((page.layers || []).map(hydrateLayer));
   fitCanvas();
   syncPaperSwatches();
   updateLayerPanel();
+  updatePagePanel();
   syncInspector();
   updateHint();
   render();
   updateHistoryButtons();
+}
+
+async function restoreSnapshot(snapshot) {
+  const pages = normalizePagesFromSnapshot(snapshot || {});
+  state.pages = pages;
+  state.activePageId = snapshot.activePageId || pages[0].id;
+  if (!pages.some(function (page) { return page.id === state.activePageId; })) state.activePageId = pages[0].id;
+  state.nextPageId = snapshot.nextPageId || (Math.max.apply(null, pages.map(function (page) { return page.id; })) + 1);
+  const maxLayerId = pages.reduce(function (maxId, page) {
+    return Math.max(maxId, (page.layers || []).reduce(function (pageMax, layer) {
+      return Math.max(pageMax, layer.id || 0);
+    }, 0));
+  }, 0);
+  state.nextId = Math.max(snapshot.nextId || 1, maxLayerId + 1);
+  const activePage = pages.find(function (page) { return page.id === state.activePageId; }) || pages[0];
+  await loadPageSnapshot(activePage);
 }
 
 function downloadBlob(blob, filename) {
@@ -2387,6 +2633,17 @@ function scaleSnapshotToSize(snapshot, targetW, targetH) {
       });
     }
   });
+  if (Array.isArray(next.pages)) {
+    const activePage = next.pages.find(function (page) { return page.id === next.activePageId; });
+    if (activePage) {
+      activePage.canvasW = next.canvasW;
+      activePage.canvasH = next.canvasH;
+      activePage.layers = next.layers;
+      activePage.activeId = next.activeId;
+      activePage.selectionIds = next.selectionIds;
+      activePage.paperColor = next.paperColor;
+    }
+  }
   return next;
 }
 
@@ -2404,6 +2661,91 @@ function renderPngBlob(scale) {
     outCtx.restore();
     outCanvas.toBlob(resolve, 'image/png');
   });
+}
+
+function canvasToJpegData(canvas) {
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.94);
+  return atob(dataUrl.split(',')[1]);
+}
+
+async function renderPageJpeg(page, scale) {
+  state.activePageId = page.id;
+  await loadPageSnapshot(page);
+  state.activeId = null;
+  state.selectionIds = [];
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = state.canvasW * scale;
+  outCanvas.height = state.canvasH * scale;
+  const outCtx = outCanvas.getContext('2d');
+  outCtx.imageSmoothingEnabled = true;
+  outCtx.imageSmoothingQuality = 'high';
+  outCtx.save();
+  outCtx.scale(scale, scale);
+  renderScene(outCtx, scale);
+  outCtx.restore();
+  return {
+    jpeg: canvasToJpegData(outCanvas),
+    width: state.canvasW,
+    height: state.canvasH
+  };
+}
+
+function pdfEscape(text) {
+  return String(text).replace(/[\\()]/g, function (match) { return '\\' + match; });
+}
+
+function buildPdfFromPages(renderedPages) {
+  const objects = [];
+  const addObject = function (body) {
+    objects.push(body);
+    return objects.length;
+  };
+  const pageRefs = [];
+  renderedPages.forEach(function (page, index) {
+    const pageW = Math.max(1, page.width * 0.75);
+    const pageH = Math.max(1, page.height * 0.75);
+    const imageRef = addObject('<< /Type /XObject /Subtype /Image /Width ' + (page.width * page.scale) + ' /Height ' + (page.height * page.scale) + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + page.jpeg.length + ' >>\nstream\n' + page.jpeg + '\nendstream');
+    const content = 'q\n' + pageW + ' 0 0 ' + pageH + ' 0 0 cm\n/Im' + index + ' Do\nQ';
+    const contentRef = addObject('<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+    const pageRef = addObject('<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ' + pageW + ' ' + pageH + '] /Resources << /XObject << /Im' + index + ' ' + imageRef + ' 0 R >> >> /Contents ' + contentRef + ' 0 R >>');
+    pageRefs.push(pageRef);
+  });
+  const pagesRef = addObject('<< /Type /Pages /Kids [' + pageRefs.map(function (ref) { return ref + ' 0 R'; }).join(' ') + '] /Count ' + pageRefs.length + ' >>');
+  const catalogRef = addObject('<< /Type /Catalog /Pages ' + pagesRef + ' 0 R >>');
+  pageRefs.forEach(function (ref) {
+    objects[ref - 1] = objects[ref - 1].replace('/Parent 0 0 R', '/Parent ' + pagesRef + ' 0 R');
+  });
+  const infoRef = addObject('<< /Title (' + pdfEscape('Collage It Pages') + ') /Creator (' + pdfEscape('Collage It') + ') >>');
+  let pdf = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+  const offsets = [0];
+  objects.forEach(function (body, index) {
+    offsets.push(pdf.length);
+    pdf += (index + 1) + ' 0 obj\n' + body + '\nendobj\n';
+  });
+  const xrefAt = pdf.length;
+  pdf += 'xref\n0 ' + (objects.length + 1) + '\n0000000000 65535 f \n';
+  for (let i = 1; i < offsets.length; i++) {
+    pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  }
+  pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root ' + catalogRef + ' 0 R /Info ' + infoRef + ' 0 R >>\nstartxref\n' + xrefAt + '\n%%EOF';
+  const bytes = new Uint8Array(pdf.length);
+  for (let i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i) & 255;
+  return new Blob([bytes], { type: 'application/pdf' });
+}
+
+async function exportPagesPdf(filename, scale) {
+  syncCurrentPageToList();
+  const original = makeSnapshot();
+  const pages = getSyncedPages();
+  const rendered = [];
+  for (let i = 0; i < pages.length; i++) {
+    const page = await renderPageJpeg(pages[i], scale || 1);
+    page.scale = scale || 1;
+    rendered.push(page);
+  }
+  await restoreSnapshot(original);
+  downloadBlob(buildPdfFromPages(rendered), filename);
+  setStatus('PDF export finished');
 }
 
 async function exportCurrentPng(filename, scale) {
@@ -2439,7 +2781,9 @@ async function exportBatch(kind) {
 
 async function openProjectPayload(payload) {
   const snapshot = payload && payload.snapshot ? payload.snapshot : payload;
-  if (!snapshot || !Array.isArray(snapshot.layers) || !snapshot.canvasW || !snapshot.canvasH) throw new Error('Invalid project');
+  const hasLegacyPage = snapshot && Array.isArray(snapshot.layers) && snapshot.canvasW && snapshot.canvasH;
+  const hasPages = snapshot && Array.isArray(snapshot.pages) && snapshot.pages.length;
+  if (!hasLegacyPage && !hasPages) throw new Error('Invalid project');
   await restoreSnapshot(snapshot);
   state.historyPast = [];
   state.historyFuture = [];
@@ -5095,6 +5439,10 @@ function renderScene(targetCtx, renderScale) {
 }
 
 function render() {
+  if (state.pagesView && !renderingPagesView) {
+    updateActivePagePreview();
+    return;
+  }
   renderScene(ctx, 1);
   renderGuideGrid();
   const selectedIds = getSelectedLayerIds();
@@ -5290,6 +5638,179 @@ function loadImageFile(file) {
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+function syncCurrentPageToList() {
+  const current = makeCurrentPageSnapshot();
+  const idx = state.pages.findIndex(function (page) { return page.id === state.activePageId; });
+  if (idx >= 0) state.pages[idx] = current;
+  else state.pages.push(current);
+}
+
+function makeBlankPage(name) {
+  return {
+    id: state.nextPageId++,
+    name: name,
+    activeId: null,
+    selectionIds: [],
+    canvasW: state.canvasW,
+    canvasH: state.canvasH,
+    paperColor: state.paperColor,
+    layers: []
+  };
+}
+
+async function switchPage(pageId) {
+  if (pageId === state.activePageId) return;
+  syncCurrentPageToList();
+  const page = state.pages.find(function (item) { return item.id === pageId; });
+  if (!page) return;
+  state.activePageId = pageId;
+  state.drag = null;
+  state.resize = null;
+  state.cropPreview = null;
+  state.marquee = null;
+  await loadPageSnapshot(page);
+  if (state.pagesView) await renderPagesView();
+  setStatus('Page selected');
+}
+
+async function addPage() {
+  syncCurrentPageToList();
+  const page = makeBlankPage('Page ' + (state.pages.length + 1));
+  state.pages.push(page);
+  state.activePageId = page.id;
+  await loadPageSnapshot(page);
+  pushHistorySnapshot();
+  if (state.pagesView) await renderPagesView();
+  setStatus('Page added');
+}
+
+async function duplicatePage() {
+  syncCurrentPageToList();
+  const active = state.pages.find(function (page) { return page.id === state.activePageId; });
+  if (!active) return;
+  const copy = JSON.parse(JSON.stringify(active));
+  copy.id = state.nextPageId++;
+  copy.name = active.name + ' Copy';
+  copy.activeId = null;
+  copy.selectionIds = [];
+  state.pages.splice(getActivePageIndex() + 1, 0, copy);
+  state.activePageId = copy.id;
+  await loadPageSnapshot(copy);
+  pushHistorySnapshot();
+  if (state.pagesView) await renderPagesView();
+  setStatus('Page duplicated');
+}
+
+async function deletePage() {
+  syncCurrentPageToList();
+  if (state.pages.length <= 1) {
+    setStatus('Keep at least one page');
+    return;
+  }
+  const idx = getActivePageIndex();
+  state.pages.splice(idx, 1);
+  const nextPage = state.pages[Math.min(idx, state.pages.length - 1)];
+  state.activePageId = nextPage.id;
+  await loadPageSnapshot(nextPage);
+  pushHistorySnapshot();
+  if (state.pagesView) await renderPagesView();
+  setStatus('Page deleted');
+}
+
+function updateActivePagePreview() {
+  if (!state.pagesView || renderingPagesView) return;
+  syncCurrentPageToList();
+  const preview = document.querySelector('.page-preview[data-page-id="' + state.activePageId + '"]');
+  if (!preview) return;
+  document.querySelectorAll('.page-preview').forEach(function (node) {
+    node.classList.toggle('active', Number(node.dataset.pageId) === state.activePageId);
+  });
+  const pc = preview.querySelector('.page-preview-canvas');
+  if (!pc) return;
+  if (pc.width !== state.canvasW) pc.width = state.canvasW;
+  if (pc.height !== state.canvasH) pc.height = state.canvasH;
+  const pctx = pc.getContext('2d');
+  renderScene(pctx, 1);
+  updatePagePanel();
+}
+
+async function renderPagesView() {
+  if (!state.pagesView) return;
+  renderingPagesView = true;
+  syncCurrentPageToList();
+  const view = document.getElementById('pages-view');
+  const original = makeSnapshot();
+  const pages = getSyncedPages();
+  view.innerHTML = '';
+  const area = document.getElementById('canvas-area');
+  const maxW = Math.max(260, area.clientWidth - 96);
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    state.activePageId = page.id;
+    await loadPageSnapshot(page);
+    const scale = Math.min(maxW / state.canvasW, 0.72);
+    const preview = document.createElement('div');
+    preview.className = 'page-preview' + (page.id === original.activePageId ? ' active' : '');
+    preview.dataset.pageId = page.id;
+    const label = document.createElement('div');
+    label.className = 'page-preview-label';
+    label.textContent = page.name || ('Page ' + (i + 1));
+    const pc = document.createElement('canvas');
+    pc.className = 'page-preview-canvas';
+    pc.width = state.canvasW;
+    pc.height = state.canvasH;
+    pc.style.width = Math.round(state.canvasW * scale) + 'px';
+    pc.style.height = Math.round(state.canvasH * scale) + 'px';
+    const pctx = pc.getContext('2d');
+    renderScene(pctx, 1);
+    preview.appendChild(label);
+    preview.appendChild(pc);
+    preview.addEventListener('click', function () {
+      switchPage(page.id);
+    });
+    preview.addEventListener('dblclick', async function () {
+      if (page.id !== state.activePageId) await switchPage(page.id);
+      await setPagesView(false);
+    });
+    view.appendChild(preview);
+  }
+  await restoreSnapshot(original);
+  renderingPagesView = false;
+  updateActivePagePreview();
+}
+
+async function setPagesView(enabled) {
+  state.pagesView = !!enabled;
+  document.getElementById('canvas-area').classList.toggle('pages-mode', state.pagesView);
+  document.getElementById('btn-pages-view').textContent = state.pagesView ? t('Edit') : t('View');
+  if (state.pagesView) {
+    await renderPagesView();
+    setStatus('Pages view on');
+  } else {
+    document.getElementById('pages-view').innerHTML = '';
+    fitCanvas();
+    setStatus('Pages view off');
+  }
+}
+
+function updatePagePanel() {
+  const list = document.getElementById('page-list');
+  if (!list) return;
+  const pages = getSyncedPages();
+  list.innerHTML = '';
+  pages.forEach(function (page, index) {
+    const item = document.createElement('div');
+    item.className = 'page-item' + (page.id === state.activePageId ? ' active' : '');
+    item.dataset.pageId = page.id;
+    item.innerHTML = '<div class="page-thumb" style="background:' + (page.paperColor || PAPER_SWATCHES[0]) + '"></div><span class="page-name">' + page.name + '</span><span class="page-count">#' + (index + 1) + '</span>';
+    item.addEventListener('click', function () { switchPage(page.id); });
+    list.appendChild(item);
+  });
+  document.getElementById('layers-group').classList.toggle('collapsed', state.layersCollapsed);
+  document.getElementById('pages-group').classList.toggle('collapsed', state.pagesCollapsed);
+  document.getElementById('btn-pages-view').textContent = state.pagesView ? t('Edit') : t('View');
 }
 
 function updateLayerPanel() {
@@ -5535,7 +6056,7 @@ function syncInspector() {
 }
 
 function updateHint() {
-  document.getElementById('upload-hint').style.display = state.layers.length ? 'none' : 'flex';
+  document.getElementById('upload-hint').style.display = state.pagesView || state.layers.length ? 'none' : 'flex';
 }
 
 canvas.addEventListener('mousedown', function (e) {
@@ -5826,6 +6347,20 @@ document.getElementById('btn-image-newsprint').addEventListener('click', functio
 document.getElementById('btn-layer-up').addEventListener('click', function () { if (state.activeId) moveLayerUp(state.activeId); });
 document.getElementById('btn-layer-down').addEventListener('click', function () { if (state.activeId) moveLayerDown(state.activeId); });
 document.getElementById('btn-layer-del').addEventListener('click', function () { if (state.activeId) deleteLayer(getSelectedLayerIds()); });
+document.getElementById('toggle-layers').addEventListener('click', function () {
+  state.layersCollapsed = !state.layersCollapsed;
+  updatePagePanel();
+});
+document.getElementById('toggle-pages').addEventListener('click', function () {
+  state.pagesCollapsed = !state.pagesCollapsed;
+  updatePagePanel();
+});
+document.getElementById('btn-page-add').addEventListener('click', addPage);
+document.getElementById('btn-page-duplicate').addEventListener('click', duplicatePage);
+document.getElementById('btn-page-delete').addEventListener('click', deletePage);
+document.getElementById('btn-pages-view').addEventListener('click', function () {
+  setPagesView(!state.pagesView);
+});
 document.getElementById('btn-clear-crop').addEventListener('click', clearClip);
 document.getElementById('btn-duplicate').addEventListener('click', duplicateLayer);
 document.getElementById('btn-layer-lock').addEventListener('click', function () {
@@ -6522,6 +7057,10 @@ document.getElementById('btn-export').addEventListener('click', async function (
   const scale = Number(document.getElementById('export-scale-select').value || 1);
   await exportCurrentPng('collage-' + scale + 'x.png', scale);
 });
+document.getElementById('btn-export-pdf').addEventListener('click', async function () {
+  const scale = Number(document.getElementById('export-scale-select').value || 1);
+  await exportPagesPdf(safeProjectName() + '.pdf', scale);
+});
 
 function closeToolbarMenus() {
   document.querySelectorAll('#toolbar .menu[open]').forEach(function (menu) {
@@ -6702,7 +7241,10 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'x' || e.key === 'X') clearClip();
 });
 
-window.addEventListener('resize', fitCanvas);
+window.addEventListener('resize', function () {
+  if (state.pagesView) renderPagesView();
+  else fitCanvas();
+});
 
 document.getElementById('language-select').addEventListener('change', function () {
   currentLanguage = this.value === 'zh' ? 'zh' : 'en';
@@ -6713,6 +7255,8 @@ document.getElementById('language-select').addEventListener('change', function (
 fitCanvas();
 updateHint();
 syncPaperSwatches();
+state.pages = [makeCurrentPageSnapshot()];
+updatePagePanel();
 pushHistorySnapshot();
 updateHistoryButtons();
 syncInspector();
